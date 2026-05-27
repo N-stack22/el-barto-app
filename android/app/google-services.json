@@ -1,0 +1,67 @@
+{
+  "project_info": {
+    "project_number": "462582707865",
+    "project_id": "rodriguezriosnathalie",
+    "storage_bucket": "rodriguezriosnathalie.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:462582707865:android:c6d1b2ec95f8fd99982a08",
+        "android_client_info": {
+          "package_name": "com.example.ejercicio01"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAS9WgvW_wVJGaftjqMfDc8zrv2bueJS9c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:462582707865:android:bc794488870e0941982a08",
+        "android_client_info": {
+          "package_name": "com.example.examen"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAS9WgvW_wVJGaftjqMfDc8zrv2bueJS9c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:462582707865:android:2e25c2b876c8232f982a08",
+        "android_client_info": {
+          "package_name": "com.example.semana5"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAS9WgvW_wVJGaftjqMfDc8zrv2bueJS9c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
