@@ -1,0 +1,194 @@
+CONFIGURACIÓN FIRESTORE PARA EL BARTO
+
+1) Colección existente de productos
+Colección: productos_restaurante
+Documento por producto, por ejemplo: productos_restaurante/pizza_americana
+Campos esperados:
+- nombre: string
+- categoria: string
+- precio: number
+- precioFamiliar: number opcional para pizzas
+- descripcion: string
+- imagenUrl: string, puede ser URL de Cloudinary
+- disponible: boolean
+- destacado: boolean
+- orden: number
+
+Nota UX/UI:
+- Los productos con destacado: true aparecen primero en Inicio.
+- En Inicio la tarjeta muestra imagen, corazón de favorito, nombre y precio grande.
+
+2) Configuración fija del restaurante
+Colección: configuracion_restaurante
+Documento: principal
+
+Campos y tipos en Firestore:
+- restauranteLat: number -> -12.039447
+- restauranteLng: number -> -75.227225
+- costoBaseDelivery: number -> 3
+- costoPorKmDelivery: number -> 1.5
+- deliveryMinimo: number -> 3
+- radioDeliveryKm: number -> 10
+
+Por qué existen:
+- restauranteLat/restauranteLng: ubicación fija del restaurante.
+- costoBaseDelivery: precio base de delivery.
+- costoPorKmDelivery: monto que aumenta según la distancia.
+- deliveryMinimo: cobro mínimo del delivery.
+- radioDeliveryKm: distancia máxima permitida para repartir.
+
+3) Colección de pedidos
+Colección: pedidos_restaurante
+La app crea documentos automáticamente con estos campos:
+- userId: string
+- email: string
+- items: array de productos del carrito
+- subtotal: number
+- delivery: number
+- total: number
+- restauranteUbicacion: map { lat: number, lng: number }
+- ubicacionCliente: map { lat: number, lng: number }
+- distanciaKm: number
+- distanciaTexto: string
+- duracionTexto: string
+- rutaPolyline: string
+- estado: string -> pendiente | en_preparacion | listo | entregado | cancelado
+- pagoEstado: string -> pendiente | cancelado
+- metodoPago: string -> pendiente
+- creadoEn: timestamp
+- estadoActualizadoEn: timestamp
+- canceladoEn: timestamp opcional, solo si el cliente cancela
+
+El estado se verá en la opción Tú > Tus pedidos.
+Para probarlo desde Firebase Console puedes editar manualmente el campo estado:
+- pendiente
+- en_preparacion
+- listo
+- entregado
+
+Las reseñas solo aparecen para pedidos con estado:
+- entregado
+
+El cliente puede cancelar desde la app solo cuando el estado todavía sea:
+- pendiente
+
+4) Colección de favoritos
+Colección: favoritos_restaurante
+La app crea documentos automáticamente cuando el usuario toca el corazón de un plato.
+
+Campos:
+- userId: string
+- productId: string
+- nombre: string
+- categoria: string
+- descripcion: string
+- imagenUrl: string
+- precio: number
+- precioFamiliar: number opcional
+- disponible: boolean
+- creadoEn: timestamp
+
+Los favoritos se ven en:
+Tú > Tus platos favoritos
+
+5) Colección de reseñas
+Colección: resenas_restaurante
+La app crea/actualiza documentos automáticamente cuando el usuario reseña un pedido entregado.
+El ID del documento es el mismo ID del pedido.
+
+Campos:
+- userId: string
+- email: string
+- pedidoId: string
+- calificacion: number, de 1 a 5
+- comentario: string
+- productosResumen: string
+- items: array
+- total: number
+- estadoPedido: string
+- creadoEn: timestamp
+- actualizadoEn: timestamp
+
+Las reseñas se ven en:
+Tú > Tus reseñas
+
+Ahí aparecen dos secciones:
+- Falta reseñar
+- Reseñados
+
+6) Reglas de Firestore sugeridas para pruebas
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /productos_restaurante/{id} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    match /configuracion_restaurante/{id} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    match /usuarios/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    match /pedidos_restaurante/{id} {
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid;
+
+      allow read: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+
+      // El cliente solo puede cancelar su propio pedido mientras sigue pendiente.
+      allow update: if request.auth != null
+        && resource.data.userId == request.auth.uid
+        && resource.data.estado in ['pendiente', 'pendiente_pago']
+        && request.resource.data.estado == 'cancelado'
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'estado',
+          'pagoEstado',
+          'estadoActualizadoEn',
+          'canceladoEn'
+        ]);
+
+      allow delete: if false;
+    }
+
+    match /favoritos_restaurante/{id} {
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid;
+
+      allow read, delete: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+
+      allow update: if false;
+    }
+
+    match /resenas_restaurante/{id} {
+      allow create, update: if request.auth != null
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.pedidoId == id;
+
+      allow read: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+
+      allow delete: if false;
+    }
+  }
+}
+
+7) Google Maps API
+Debes poner tu key en 2 lugares:
+
+A) Para calcular distancia y ruta con Directions API:
+Archivo: .env
+GOOGLE_MAPS_API_KEY=TU_KEY_REAL
+
+B) Para mostrar el mapa dentro de la app Android:
+Archivo: android/app/src/main/res/values/google_maps_api.xml
+<string name="google_maps_key">TU_KEY_REAL</string>
+
+Recomendación: restringe tu API Key en Google Cloud para Android y para Directions API.
