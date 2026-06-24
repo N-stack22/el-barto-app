@@ -5,13 +5,14 @@ restaurante El Barto.
 
 ## Panel administrador
 
-El panel esta disponible en la ruta:
+En la version web publicada en GitHub Pages, el login del administrador abre
+directamente en:
 
 ```text
-/#/admin
+https://N-stack22.github.io/el-barto-app/
 ```
 
-En GitHub Pages quedara como:
+La ruta interna del panel tambien queda disponible en:
 
 ```text
 https://N-stack22.github.io/el-barto-app/#/admin

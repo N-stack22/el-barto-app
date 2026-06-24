@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
@@ -132,7 +133,7 @@ class _RestauranteAppState extends State<RestauranteApp>
           child: child ?? const SizedBox.shrink(),
         );
       },
-      home: const SplashScreen(),
+      home: kIsWeb ? const AdminPanelScreen() : const SplashScreen(),
       routes: {
         '/admin': (context) => const AdminPanelScreen(),
         '/auth': (context) => const AuthScreen(),
