@@ -27,6 +27,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   String? _loginError;
   String _busqueda = '';
   String _categoria = 'Todas';
+  String? _selectedProductId;
 
   CollectionReference<Map<String, dynamic>> get _productosRef =>
       _db.collection(SeedRestauranteService.collectionName);
@@ -664,6 +665,17 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
           final filtrados = docs
               .where((doc) => _matchesSearch(doc.data()))
               .toList();
+          QueryDocumentSnapshot<Map<String, dynamic>>? selectedDoc;
+          for (final doc in filtrados) {
+            if (doc.id == _selectedProductId) {
+              selectedDoc = doc;
+              break;
+            }
+          }
+          if (selectedDoc == null && filtrados.isNotEmpty) {
+            selectedDoc = filtrados.first;
+            _selectedProductId = selectedDoc.id;
+          }
           final disponibles = docs
               .where((doc) => doc.data()['disponible'] == true)
               .length;
@@ -722,7 +734,20 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                             90,
                           ),
                           sliver: SliverToBoxAdapter(
-                            child: _productsTable(filtrados),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  flex: 7,
+                                  child: _productsTable(filtrados),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  flex: 3,
+                                  child: _productDetailPanel(selectedDoc),
+                                ),
+                              ],
+                            ),
                           ),
                         )
                       else
@@ -961,8 +986,20 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                   final precio = precioFamiliar is num
                       ? '${_money(data['precio'])} / ${_money(precioFamiliar)}'
                       : _money(data['precio']);
+                  final selected = doc.id == _selectedProductId;
 
                   return DataRow(
+                    selected: selected,
+                    color: WidgetStateProperty.resolveWith((states) {
+                      if (selected) return amarillo.withValues(alpha: 0.16);
+                      if (states.contains(WidgetState.hovered)) {
+                        return Colors.black.withValues(alpha: 0.03);
+                      }
+                      return null;
+                    }),
+                    onSelectChanged: (_) {
+                      setState(() => _selectedProductId = doc.id);
+                    },
                     cells: [
                       DataCell(Text('${data['orden'] ?? ''}')),
                       DataCell(
@@ -1031,6 +1068,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
   Widget _productCard(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data();
+    final selected = doc.id == _selectedProductId;
     final nombre = data['nombre']?.toString() ?? 'Producto';
     final categoria = data['categoria']?.toString() ?? 'Sin categoria';
     final precioFamiliar = data['precioFamiliar'];
@@ -1039,104 +1077,326 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         : _money(data['precio']);
 
     return Card(
-      elevation: 0,
-      color: Colors.white,
+      elevation: selected ? 2 : 0,
+      color: selected ? const Color(0xFFFFFAE6) : Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: Colors.black.withValues(alpha: 0.06)),
+        side: BorderSide(
+          color: selected ? amarillo : Colors.black.withValues(alpha: 0.06),
+          width: selected ? 1.5 : 1,
+        ),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: amarillo.withValues(alpha: 0.28),
-                    borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => setState(() => _selectedProductId = doc.id),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: amarillo.withValues(alpha: 0.28),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '${data['orden'] ?? '-'}',
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
                   ),
-                  child: Text(
-                    '${data['orden'] ?? '-'}',
-                    style: const TextStyle(fontWeight: FontWeight.w900),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        nombre,
-                        style: const TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w900,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          nombre,
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        categoria,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.black54),
-                      ),
-                    ],
+                        const SizedBox(height: 4),
+                        Text(
+                          categoria,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.black54),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  precio,
-                  style: const TextStyle(
-                    color: negro,
-                    fontWeight: FontWeight.w900,
+                  const SizedBox(width: 10),
+                  Text(
+                    precio,
+                    style: const TextStyle(
+                      color: negro,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                data['descripcion']?.toString() ?? '',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.black87),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 10,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  FilterChip(
+                    label: const Text('Disponible'),
+                    selected: data['disponible'] == true,
+                    selectedColor: amarillo,
+                    onSelected: (value) =>
+                        _toggleField(doc, 'disponible', value),
+                  ),
+                  FilterChip(
+                    label: const Text('Destacado'),
+                    selected: data['destacado'] == true,
+                    selectedColor: amarillo,
+                    onSelected: (value) =>
+                        _toggleField(doc, 'destacado', value),
+                  ),
+                  IconButton.filledTonal(
+                    tooltip: 'Editar',
+                    onPressed: () => _openProductForm(doc: doc),
+                    icon: const Icon(Icons.edit_rounded),
+                  ),
+                  IconButton.filledTonal(
+                    tooltip: 'Eliminar',
+                    onPressed: () => _deleteProduct(doc),
+                    icon: const Icon(Icons.delete_rounded, color: Colors.red),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _productDetailPanel(QueryDocumentSnapshot<Map<String, dynamic>>? doc) {
+    if (doc == null) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+        ),
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.touch_app_rounded, size: 42, color: Colors.black38),
+            SizedBox(height: 10),
             Text(
-              data['descripcion']?.toString() ?? '',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.black87),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 10,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                FilterChip(
-                  label: const Text('Disponible'),
-                  selected: data['disponible'] == true,
-                  selectedColor: amarillo,
-                  onSelected: (value) => _toggleField(doc, 'disponible', value),
-                ),
-                FilterChip(
-                  label: const Text('Destacado'),
-                  selected: data['destacado'] == true,
-                  selectedColor: amarillo,
-                  onSelected: (value) => _toggleField(doc, 'destacado', value),
-                ),
-                IconButton.filledTonal(
-                  tooltip: 'Editar',
-                  onPressed: () => _openProductForm(doc: doc),
-                  icon: const Icon(Icons.edit_rounded),
-                ),
-                IconButton.filledTonal(
-                  tooltip: 'Eliminar',
-                  onPressed: () => _deleteProduct(doc),
-                  icon: const Icon(Icons.delete_rounded, color: Colors.red),
-                ),
-              ],
+              'Selecciona un producto',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontWeight: FontWeight.w900),
             ),
           ],
         ),
+      );
+    }
+
+    final data = doc.data();
+    final nombre = data['nombre']?.toString() ?? 'Producto';
+    final categoria = data['categoria']?.toString() ?? 'Sin categoria';
+    final descripcion = data['descripcion']?.toString() ?? 'Sin descripcion';
+    final imagenUrl = data['imagenUrl']?.toString().trim() ?? '';
+    final precioFamiliar = data['precioFamiliar'];
+    final disponible = data['disponible'] == true;
+    final destacado = data['destacado'] == true;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _detailImage(imagenUrl),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        nombre,
+                        style: const TextStyle(
+                          fontSize: 22,
+                          height: 1.05,
+                          fontWeight: FontWeight.w900,
+                          color: negro,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: disponible
+                            ? const Color(0xFFE9F8EA)
+                            : const Color(0xFFFFEBEE),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        disponible ? 'Disponible' : 'Oculto',
+                        style: TextStyle(
+                          color: disponible
+                              ? Colors.green.shade800
+                              : Colors.red,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  categoria,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.black54,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _detailChip(Icons.sell_rounded, _money(data['precio'])),
+                    if (precioFamiliar is num)
+                      _detailChip(
+                        Icons.local_pizza_rounded,
+                        'Familiar ${_money(precioFamiliar)}',
+                      ),
+                    if (destacado) _detailChip(Icons.star_rounded, 'Destacado'),
+                    _detailChip(
+                      Icons.format_list_numbered_rounded,
+                      'Orden ${data['orden'] ?? '-'}',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'Descripcion',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  descripcion,
+                  style: const TextStyle(height: 1.35, color: Colors.black87),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _openProductForm(doc: doc),
+                        icon: const Icon(Icons.edit_rounded),
+                        label: const Text('Editar'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    IconButton.filledTonal(
+                      tooltip: 'Eliminar',
+                      onPressed: () => _deleteProduct(doc),
+                      icon: const Icon(Icons.delete_rounded, color: Colors.red),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _detailImage(String imagenUrl) {
+    if (imagenUrl.isEmpty) {
+      return Container(
+        height: 180,
+        width: double.infinity,
+        color: const Color(0xFFFFF1B8),
+        child: const Icon(
+          Icons.restaurant_menu_rounded,
+          size: 54,
+          color: negro,
+        ),
+      );
+    }
+
+    return Image.network(
+      imagenUrl,
+      height: 180,
+      width: double.infinity,
+      fit: BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) {
+        return Container(
+          height: 180,
+          width: double.infinity,
+          color: const Color(0xFFFFEBEE),
+          child: const Icon(
+            Icons.broken_image_rounded,
+            color: Colors.red,
+            size: 46,
+          ),
+        );
+      },
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return const SizedBox(
+          height: 180,
+          child: Center(child: CircularProgressIndicator()),
+        );
+      },
+    );
+  }
+
+  Widget _detailChip(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF4F1E8),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: negro),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+          ),
+        ],
       ),
     );
   }
