@@ -673,53 +673,77 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
 
           return LayoutBuilder(
             builder: (context, constraints) {
-              final wide = constraints.maxWidth >= 900;
-              return CustomScrollView(
-                slivers: [
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 18, 18, 8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _summaryHeader(
-                            total: docs.length,
-                            disponibles: disponibles,
-                            destacados: destacados,
-                            user: user,
-                            wide: wide,
+              final useTable = constraints.maxWidth >= 1180;
+              final horizontalPadding = constraints.maxWidth < 640
+                  ? 12.0
+                  : 20.0;
+
+              return Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1320),
+                  child: CustomScrollView(
+                    slivers: [
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            horizontalPadding,
+                            18,
+                            horizontalPadding,
+                            8,
                           ),
-                          const SizedBox(height: 14),
-                          _filters(categorias),
-                        ],
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _summaryHeader(
+                                total: docs.length,
+                                disponibles: disponibles,
+                                destacados: destacados,
+                                user: user,
+                                wide: useTable,
+                              ),
+                              const SizedBox(height: 14),
+                              _filters(categorias),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
+                      if (filtrados.isEmpty)
+                        const SliverFillRemaining(
+                          child: Center(
+                            child: Text('No hay productos para mostrar.'),
+                          ),
+                        )
+                      else if (useTable)
+                        SliverPadding(
+                          padding: EdgeInsets.fromLTRB(
+                            horizontalPadding,
+                            6,
+                            horizontalPadding,
+                            90,
+                          ),
+                          sliver: SliverToBoxAdapter(
+                            child: _productsTable(filtrados),
+                          ),
+                        )
+                      else
+                        SliverPadding(
+                          padding: EdgeInsets.fromLTRB(
+                            horizontalPadding,
+                            6,
+                            horizontalPadding,
+                            90,
+                          ),
+                          sliver: SliverList.separated(
+                            itemCount: filtrados.length,
+                            separatorBuilder: (context, index) =>
+                                const SizedBox(height: 10),
+                            itemBuilder: (context, index) =>
+                                _productCard(filtrados[index]),
+                          ),
+                        ),
+                    ],
                   ),
-                  if (filtrados.isEmpty)
-                    const SliverFillRemaining(
-                      child: Center(
-                        child: Text('No hay productos para mostrar.'),
-                      ),
-                    )
-                  else if (wide)
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(18, 6, 18, 90),
-                      sliver: SliverToBoxAdapter(
-                        child: _productsTable(filtrados),
-                      ),
-                    )
-                  else
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(14, 6, 14, 90),
-                      sliver: SliverList.separated(
-                        itemCount: filtrados.length,
-                        separatorBuilder: (context, index) =>
-                            const SizedBox(height: 10),
-                        itemBuilder: (context, index) =>
-                            _productCard(filtrados[index]),
-                      ),
-                    ),
-                ],
+                ),
               );
             },
           );
@@ -747,15 +771,26 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
         borderRadius: BorderRadius.circular(18),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.all(20),
         child: wide
             ? Row(
                 children: [
                   Expanded(child: _brandBlock(user)),
-                  ...stats.map(
-                    (item) => Padding(
-                      padding: const EdgeInsets.only(left: 12),
-                      child: item,
+                  const SizedBox(width: 16),
+                  Flexible(
+                    flex: 2,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: stats
+                          .map(
+                            (item) => Flexible(
+                              child: Padding(
+                                padding: const EdgeInsets.only(left: 10),
+                                child: item,
+                              ),
+                            ),
+                          )
+                          .toList(),
                     ),
                   ),
                 ],
@@ -794,166 +829,203 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
   }
 
   Widget _stat(String label, String value, IconData icon) {
-    return Container(
-      width: 150,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: amarillo),
-          const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                value,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
-                ),
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 138, maxWidth: 174),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: amarillo),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  Text(
+                    label,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                ],
               ),
-              Text(label, style: const TextStyle(color: Colors.white70)),
-            ],
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _filters(List<String> categorias) {
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        SizedBox(
-          width: 320,
-          child: TextField(
-            controller: _buscarController,
-            decoration: InputDecoration(
-              hintText: 'Buscar producto',
-              prefixIcon: const Icon(Icons.search_rounded),
-              suffixIcon: _busqueda.isEmpty
-                  ? null
-                  : IconButton(
-                      tooltip: 'Limpiar',
-                      onPressed: () {
-                        _buscarController.clear();
-                        setState(() => _busqueda = '');
-                      },
-                      icon: const Icon(Icons.close_rounded),
-                    ),
-              filled: true,
-              fillColor: Colors.white,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide.none,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 720;
+        final searchWidth = compact ? constraints.maxWidth : 340.0;
+        final categoryWidth = compact ? constraints.maxWidth : 280.0;
+
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            SizedBox(
+              width: searchWidth,
+              child: TextField(
+                controller: _buscarController,
+                decoration: InputDecoration(
+                  hintText: 'Buscar producto',
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  suffixIcon: _busqueda.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Limpiar',
+                          onPressed: () {
+                            _buscarController.clear();
+                            setState(() => _busqueda = '');
+                          },
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+                onChanged: (value) => setState(() => _busqueda = value.trim()),
               ),
             ),
-            onChanged: (value) => setState(() => _busqueda = value.trim()),
-          ),
-        ),
-        DropdownMenu<String>(
-          initialSelection: _categoria,
-          width: 260,
-          label: const Text('Categoria'),
-          dropdownMenuEntries: categorias
-              .map(
-                (categoria) =>
-                    DropdownMenuEntry(value: categoria, label: categoria),
-              )
-              .toList(),
-          onSelected: (value) => setState(() => _categoria = value ?? 'Todas'),
-        ),
-      ],
+            DropdownMenu<String>(
+              initialSelection: _categoria,
+              width: categoryWidth,
+              label: const Text('Categoria'),
+              dropdownMenuEntries: categorias
+                  .map(
+                    (categoria) =>
+                        DropdownMenuEntry(value: categoria, label: categoria),
+                  )
+                  .toList(),
+              onSelected: (value) =>
+                  setState(() => _categoria = value ?? 'Todas'),
+            ),
+          ],
+        );
+      },
     );
   }
 
   Widget _productsTable(
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
   ) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: DecoratedBox(
-        decoration: const BoxDecoration(color: Colors.white),
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: DataTable(
-            headingRowColor: WidgetStateProperty.all(const Color(0xFFFFF3C4)),
-            columns: const [
-              DataColumn(label: Text('Orden')),
-              DataColumn(label: Text('Producto')),
-              DataColumn(label: Text('Categoria')),
-              DataColumn(label: Text('Precio')),
-              DataColumn(label: Text('Estado')),
-              DataColumn(label: Text('Destacado')),
-              DataColumn(label: Text('Acciones')),
-            ],
-            rows: docs.map((doc) {
-              final data = doc.data();
-              final precioFamiliar = data['precioFamiliar'];
-              final precio = precioFamiliar is num
-                  ? '${_money(data['precio'])} / ${_money(precioFamiliar)}'
-                  : _money(data['precio']);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+            ),
+            child: SizedBox(
+              width: constraints.maxWidth,
+              child: DataTable(
+                columnSpacing: 28,
+                horizontalMargin: 18,
+                headingRowColor: WidgetStateProperty.all(
+                  const Color(0xFFFFF3C4),
+                ),
+                columns: const [
+                  DataColumn(label: Text('Orden')),
+                  DataColumn(label: Text('Producto')),
+                  DataColumn(label: Text('Categoria')),
+                  DataColumn(label: Text('Precio')),
+                  DataColumn(label: Text('Estado')),
+                  DataColumn(label: Text('Destacado')),
+                  DataColumn(label: Text('Acciones')),
+                ],
+                rows: docs.map((doc) {
+                  final data = doc.data();
+                  final precioFamiliar = data['precioFamiliar'];
+                  final precio = precioFamiliar is num
+                      ? '${_money(data['precio'])} / ${_money(precioFamiliar)}'
+                      : _money(data['precio']);
 
-              return DataRow(
-                cells: [
-                  DataCell(Text('${data['orden'] ?? ''}')),
-                  DataCell(
-                    SizedBox(
-                      width: 220,
-                      child: Text(
-                        data['nombre']?.toString() ?? 'Producto',
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ),
-                  DataCell(Text(data['categoria']?.toString() ?? '')),
-                  DataCell(Text(precio)),
-                  DataCell(
-                    Switch(
-                      value: data['disponible'] == true,
-                      onChanged: (value) =>
-                          _toggleField(doc, 'disponible', value),
-                    ),
-                  ),
-                  DataCell(
-                    Switch(
-                      value: data['destacado'] == true,
-                      onChanged: (value) =>
-                          _toggleField(doc, 'destacado', value),
-                    ),
-                  ),
-                  DataCell(
-                    Row(
-                      children: [
-                        IconButton(
-                          tooltip: 'Editar',
-                          onPressed: () => _openProductForm(doc: doc),
-                          icon: const Icon(Icons.edit_rounded),
-                        ),
-                        IconButton(
-                          tooltip: 'Eliminar',
-                          onPressed: () => _deleteProduct(doc),
-                          icon: const Icon(
-                            Icons.delete_rounded,
-                            color: Colors.red,
+                  return DataRow(
+                    cells: [
+                      DataCell(Text('${data['orden'] ?? ''}')),
+                      DataCell(
+                        SizedBox(
+                          width: 260,
+                          child: Text(
+                            data['nombre']?.toString() ?? 'Producto',
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                ],
-              );
-            }).toList(),
+                      ),
+                      DataCell(
+                        SizedBox(
+                          width: 210,
+                          child: Text(
+                            data['categoria']?.toString() ?? '',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                      DataCell(Text(precio)),
+                      DataCell(
+                        Switch(
+                          value: data['disponible'] == true,
+                          onChanged: (value) =>
+                              _toggleField(doc, 'disponible', value),
+                        ),
+                      ),
+                      DataCell(
+                        Switch(
+                          value: data['destacado'] == true,
+                          onChanged: (value) =>
+                              _toggleField(doc, 'destacado', value),
+                        ),
+                      ),
+                      DataCell(
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Editar',
+                              onPressed: () => _openProductForm(doc: doc),
+                              icon: const Icon(Icons.edit_rounded),
+                            ),
+                            IconButton(
+                              tooltip: 'Eliminar',
+                              onPressed: () => _deleteProduct(doc),
+                              icon: const Icon(
+                                Icons.delete_rounded,
+                                color: Colors.red,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
+                }).toList(),
+              ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -969,7 +1041,10 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
     return Card(
       elevation: 0,
       color: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: Colors.black.withValues(alpha: 0.06)),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -978,6 +1053,20 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: amarillo.withValues(alpha: 0.28),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '${data['orden'] ?? '-'}',
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -992,11 +1081,14 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                       const SizedBox(height: 4),
                       Text(
                         categoria,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(color: Colors.black54),
                       ),
                     ],
                   ),
                 ),
+                const SizedBox(width: 10),
                 Text(
                   precio,
                   style: const TextStyle(
@@ -1011,6 +1103,7 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
               data['descripcion']?.toString() ?? '',
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.black87),
             ),
             const SizedBox(height: 12),
             Wrap(
@@ -1030,12 +1123,12 @@ class _AdminPanelScreenState extends State<AdminPanelScreen> {
                   selectedColor: amarillo,
                   onSelected: (value) => _toggleField(doc, 'destacado', value),
                 ),
-                IconButton(
+                IconButton.filledTonal(
                   tooltip: 'Editar',
                   onPressed: () => _openProductForm(doc: doc),
                   icon: const Icon(Icons.edit_rounded),
                 ),
-                IconButton(
+                IconButton.filledTonal(
                   tooltip: 'Eliminar',
                   onPressed: () => _deleteProduct(doc),
                   icon: const Icon(Icons.delete_rounded, color: Colors.red),
