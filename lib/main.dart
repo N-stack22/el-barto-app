@@ -5,6 +5,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
+import 'admin_panel_screen.dart';
 import 'auth_screen.dart';
 import 'firebase_options.dart';
 import 'role_gate_screen.dart';
@@ -14,9 +15,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: '.env', isOptional: true);
 
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   runApp(const RestauranteApp());
 }
@@ -111,9 +110,7 @@ class _RestauranteAppState extends State<RestauranteApp>
           }),
           iconTheme: WidgetStateProperty.resolveWith((states) {
             final selected = states.contains(WidgetState.selected);
-            return IconThemeData(
-              color: selected ? negro : Colors.white70,
-            );
+            return IconThemeData(color: selected ? negro : Colors.white70);
           }),
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
@@ -137,6 +134,7 @@ class _RestauranteAppState extends State<RestauranteApp>
       },
       home: const SplashScreen(),
       routes: {
+        '/admin': (context) => const AdminPanelScreen(),
         '/auth': (context) => const AuthScreen(),
         '/home': (context) => const RoleGateScreen(),
       },

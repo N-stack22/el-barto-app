@@ -1,17 +1,63 @@
-# examen
+# El Barto App
 
-A new Flutter project.
+Aplicacion Flutter para carta digital, delivery y panel administrador del
+restaurante El Barto.
 
-## Getting Started
+## Panel administrador
 
-This project is a starting point for a Flutter application.
+El panel esta disponible en la ruta:
 
-A few resources to get you started if this is your first Flutter project:
+```text
+/#/admin
+```
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+En GitHub Pages quedara como:
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```text
+https://N-stack22.github.io/el-barto-app/#/admin
+```
+
+El acceso usa Firebase Authentication con correo y contrasena. Para permitir
+que un usuario entre al panel, crea el usuario en Firebase Auth y en Firestore
+agrega o actualiza el documento:
+
+```text
+usuarios/{uid}
+```
+
+Con alguno de estos campos:
+
+```json
+{
+  "rol": "admin"
+}
+```
+
+o:
+
+```json
+{
+  "roles": ["admin"]
+}
+```
+
+Desde el panel se pueden ver, buscar, filtrar, crear, editar y eliminar los
+productos de la coleccion `productos_restaurante`. Tambien se puede activar o
+desactivar `disponible` y `destacado`.
+
+## Publicacion en GitHub Pages
+
+El repositorio incluye el workflow:
+
+```text
+.github/workflows/pages.yml
+```
+
+Cada push a `main` compila Flutter Web con:
+
+```text
+flutter build web --release --base-href /el-barto-app/
+```
+
+Luego publica `build/web` en GitHub Pages. En la configuracion del repositorio
+de GitHub, activa Pages usando `GitHub Actions` como fuente.
