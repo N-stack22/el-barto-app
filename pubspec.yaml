@@ -79,7 +79,6 @@ flutter:
   uses-material-design: true
 
   assets:
-    - .env
     - assets/logo.png
     - assets/icono_app.png
     - assets/images/el_barto_logo.png
