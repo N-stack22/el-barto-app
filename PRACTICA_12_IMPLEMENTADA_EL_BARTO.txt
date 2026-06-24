@@ -1,0 +1,33 @@
+PRACTICA IMPLEMENTADA EN EL PROYECTO EL BARTO
+
+1. Icono de app / Launcher icon
+- Se creo la carpeta assets/.
+- Se agrego assets/icono_app.png como icono principal de la app.
+- Se agrego assets/logo.png para reutilizarlo en pantallas.
+- Se declaro flutter_launcher_icons en pubspec.yaml.
+- Se generaron tambien los iconos Android en android/app/src/main/res/mipmap-*.
+
+Comandos recomendados al abrir el proyecto:
+flutter pub get
+flutter pub run flutter_launcher_icons
+
+2. Cierre automatico al minimizar
+- main.dart ahora usa WidgetsBindingObserver.
+- Si la app pasa a segundo plano, se cierra la sesion del usuario autenticado.
+- El catalogo sigue disponible, porque el proyecto permite mirar platos sin iniciar sesion.
+
+3. Widget reutilizable de logo
+- Se agrego lib/widgets/logo_widget.dart.
+- Usa assets/logo.png.
+
+4. Cierre por inactividad
+- main.dart reinicia un temporizador cuando el usuario toca o mueve el dedo en pantalla.
+- Si pasan 5 minutos sin actividad, se cierra la sesion del usuario autenticado.
+
+5. Splash screen animado
+- Se agrego lib/splash_screen.dart.
+- Muestra el logo con animacion antes de entrar al catalogo.
+
+6. AppBar con logo
+- Se agrego lib/widgets/custom_app_bar.dart.
+- Se aplico en la pantalla principal RestauranteScreen.

@@ -1,0 +1,404 @@
+CONFIGURACIÓN FIRESTORE PARA EL BARTO
+
+1) Colección existente de productos
+Colección: productos_restaurante
+Documento por producto, por ejemplo: productos_restaurante/pizza_americana
+Campos esperados:
+- nombre: string
+- categoria: string
+- precio: number
+- precioFamiliar: number opcional para pizzas
+- descripcion: string
+- imagenUrl: string, puede ser URL de Cloudinary
+- disponible: boolean
+- destacado: boolean
+- orden: number
+
+Nota UX/UI:
+- Los productos con destacado: true aparecen primero en Inicio.
+- En Inicio la tarjeta muestra imagen, corazón de favorito, nombre y precio grande.
+
+2) Configuración fija del restaurante
+Colección: configuracion_restaurante
+Documento: principal
+
+Campos y tipos en Firestore:
+- restauranteLat: number -> -12.039447
+- restauranteLng: number -> -75.227225
+- costoBaseDelivery: number -> 3
+- costoPorKmDelivery: number -> 1.5
+- deliveryMinimo: number -> 3
+- radioDeliveryKm: number -> 10
+
+Por qué existen:
+- restauranteLat/restauranteLng: ubicación fija del restaurante.
+- costoBaseDelivery: precio base de delivery.
+- costoPorKmDelivery: monto que aumenta según la distancia.
+- deliveryMinimo: cobro mínimo del delivery.
+- radioDeliveryKm: distancia máxima permitida para repartir.
+
+3) Colección de pedidos
+Colección: pedidos_restaurante
+La app crea documentos automáticamente con estos campos:
+- userId: string
+- email: string
+- items: array de productos del carrito
+- subtotal: number
+- delivery: number
+- total: number
+- restauranteUbicacion: map { lat: number, lng: number }
+- ubicacionCliente: map { lat: number, lng: number }
+- distanciaKm: number
+- distanciaTexto: string
+- duracionTexto: string
+- rutaPolyline: string
+- estado: string -> pendiente | en_preparacion | listo | entregado | cancelado
+- pagoEstado: string -> pendiente | cancelado
+- metodoPago: string -> pendiente
+- creadoEn: timestamp
+- estadoActualizadoEn: timestamp
+- canceladoEn: timestamp opcional, solo si el cliente cancela
+
+El estado se verá en la opción Tú > Tus pedidos.
+Para probarlo desde Firebase Console puedes editar manualmente el campo estado:
+- pendiente
+- en_preparacion
+- listo
+- entregado
+
+Las reseñas solo aparecen para pedidos con estado:
+- entregado
+
+El cliente puede cancelar desde la app solo cuando el estado todavía sea:
+- pendiente
+
+4) Colección de favoritos
+Colección: favoritos_restaurante
+La app crea documentos automáticamente cuando el usuario toca el corazón de un plato.
+
+Campos:
+- userId: string
+- productId: string
+- nombre: string
+- categoria: string
+- descripcion: string
+- imagenUrl: string
+- precio: number
+- precioFamiliar: number opcional
+- disponible: boolean
+- creadoEn: timestamp
+
+Los favoritos se ven en:
+Tú > Tus platos favoritos
+
+5) Colección de reseñas
+Colección: resenas_restaurante
+La app crea/actualiza documentos automáticamente cuando el usuario reseña un pedido entregado.
+El ID del documento es el mismo ID del pedido.
+
+Campos:
+- userId: string
+- email: string
+- pedidoId: string
+- calificacion: number, de 1 a 5
+- comentario: string
+- productosResumen: string
+- items: array
+- total: number
+- estadoPedido: string
+- creadoEn: timestamp
+- actualizadoEn: timestamp
+
+Las reseñas se ven en:
+Tú > Tus reseñas
+
+Ahí aparecen dos secciones:
+- Falta reseñar
+- Reseñados
+
+6) Reglas de Firestore sugeridas para pruebas
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /productos_restaurante/{id} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    match /configuracion_restaurante/{id} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    match /usuarios/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    match /pedidos_restaurante/{id} {
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid;
+
+      allow read: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+
+      // El cliente solo puede cancelar su propio pedido mientras sigue pendiente.
+      allow update: if request.auth != null
+        && resource.data.userId == request.auth.uid
+        && resource.data.estado in ['pendiente', 'pendiente_pago']
+        && request.resource.data.estado == 'cancelado'
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'estado',
+          'pagoEstado',
+          'estadoActualizadoEn',
+          'canceladoEn'
+        ]);
+
+      allow delete: if false;
+    }
+
+    match /favoritos_restaurante/{id} {
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid;
+
+      allow read, delete: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+
+      allow update: if false;
+    }
+
+    match /resenas_restaurante/{id} {
+      allow create, update: if request.auth != null
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.pedidoId == id;
+
+      allow read: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+
+      allow delete: if false;
+    }
+  }
+}
+
+7) Google Maps API
+Debes poner tu key en 2 lugares:
+
+A) Para calcular distancia y ruta con Directions API:
+Archivo: .env
+GOOGLE_MAPS_API_KEY=TU_KEY_REAL
+
+B) Para mostrar el mapa dentro de la app Android:
+Archivo: android/app/src/main/res/values/google_maps_api.xml
+<string name="google_maps_key">TU_KEY_REAL</string>
+
+Recomendación: restringe tu API Key en Google Cloud para Android y para Directions API.
+
+============================================================
+CAMPOS EXTRA PARA SEGUIMIENTO DE REPARTIDOR - FIX13
+============================================================
+No borres la colección pedidos_restaurante.
+Firestore permite agregar campos nuevos sin recrear la colección.
+
+Desde este fix, cada pedido nuevo se crea automáticamente con estos campos:
+
+seguimientoActivo: false                  Boolean
+repartidorAsignado: false                 Boolean
+repartidorId: null                        Null/String
+repartidorNombre: null                    Null/String
+repartidorTelefono: null                  Null/String
+repartidorLat: null                       Null/Number
+repartidorLng: null                       Null/Number
+repartidorVelocidadKmh: 0                 Number
+repartidorMovimiento: "sin_asignar"       String
+repartidorActualizadoEn: null             Null/Timestamp
+
+Cuando quieras probar seguimiento desde Firebase Console, puedes editar un pedido así:
+
+estado: "en_camino"                       String
+seguimientoActivo: true                   Boolean
+repartidorAsignado: true                  Boolean
+repartidorNombre: "Repartidor demo"       String
+repartidorLat: -12.040000                 Number
+repartidorLng: -75.225000                 Number
+repartidorVelocidadKmh: 25                Number
+repartidorMovimiento: "en_movimiento"     String
+repartidorActualizadoEn: fecha actual     Timestamp
+
+Valores recomendados para repartidorMovimiento:
+- sin_asignar
+- detenido
+- en_movimiento
+- movimiento_fuerte
+
+Estados recomendados del pedido:
+- pendiente
+- en_preparacion
+- listo
+- en_camino
+- entregado
+- cancelado
+
+============================================================
+MODO MOTOCICLISTA + SENSORES - FIX14
+============================================================
+
+1) Cómo convertir un usuario en motociclista
+En Firestore edita el documento del usuario:
+Colección: usuarios
+Documento: UID_DEL_USUARIO
+
+Agrega o edita estos campos:
+rol: "motociclista"                 String
+roles: ["motociclista"]             Array de String
+calificacionRepartidor: 4.8          Number opcional
+activoRepartidor: true               Boolean opcional
+
+Cuando ese usuario inicie sesión, la app ya no abrirá el catálogo de cliente.
+Abrirá el modo motociclista con pedidos disponibles, mapa y seguimiento.
+
+2) Sensores del celular
+Se agregó la dependencia:
+sensors_plus: ^4.0.2
+
+En la app del cliente:
+Tú > Probar sensores del celular
+
+Muestra:
+- Acelerómetro
+- Giroscopio
+- Magnetómetro
+- UserAccelerometer
+
+En modo motociclista se usa userAccelerometer como complemento para indicar:
+- detenido
+- en_movimiento
+- movimiento_fuerte
+
+La velocidad real se calcula con GPS usando geolocator.
+
+3) Repartidores
+Colección: repartidores
+Documento: UID_DEL_REPARTIDOR
+
+La app del motociclista crea/actualiza automáticamente:
+uid: string
+email: string
+lat: number
+lng: number
+velocidadKmh: number
+rumbo: number
+movimiento: string
+fuerzaSensor: number
+activo: boolean
+actualizadoEn: timestamp
+
+4) Pedidos disponibles para motociclistas
+La pantalla motociclista muestra pedidos con estado:
+- en_preparacion
+- listo
+
+y sin repartidor asignado:
+repartidorAsignado: false
+
+Si el motociclista rechaza:
+rechazadosPor: array con el UID del repartidor
+
+El pedido queda disponible para otros repartidores.
+
+5) Al aceptar un pedido
+La app actualiza el pedido así:
+estado: "en_camino_local"
+seguimientoActivo: true
+repartidorAsignado: true
+repartidorId: UID
+repartidorNombre: nombre del usuario
+repartidorEmail: email del usuario
+repartidorLat: number
+repartidorLng: number
+repartidorVelocidadKmh: number
+repartidorMovimiento: string
+repartidorRumbo: number
+gananciaRepartidor: number
+aceptadoEn: timestamp
+estadoActualizadoEn: timestamp
+repartidorActualizadoEn: timestamp
+
+6) Estados del pedido recomendados
+pendiente
+ en_preparacion
+listo
+en_camino_local      -> el repartidor aceptó y va al restaurante
+en_camino            -> el repartidor recogió el pedido e inició la ruta al cliente
+entregado
+cancelado
+
+7) Vista del cliente
+En el detalle del pedido, el cliente ve:
+- marcador del restaurante
+- marcador de entrega
+- ubicación del repartidor en tiempo real
+- velocidad del repartidor
+- movimiento del repartidor
+
+Si repartidorMovimiento es "en_movimiento", el marcador del repartidor se muestra con dirección.
+Si repartidorMovimiento es "detenido", se muestra como círculo.
+
+8) Reglas de Firestore para pruebas con cliente y motociclista
+Para que el modo motociclista pueda leer y actualizar pedidos, usa reglas de prueba más amplias:
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /productos_restaurante/{id} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    match /configuracion_restaurante/{id} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    match /usuarios/{uid} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    match /repartidores/{uid} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    match /pedidos_restaurante/{id} {
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid;
+
+      // Cliente lee sus pedidos. Motociclista lee pedidos disponibles y asignados.
+      allow read: if request.auth != null;
+
+      // Para práctica/prototipo: permite que cliente cancele y que motociclista acepte/actualice seguimiento.
+      allow update: if request.auth != null;
+
+      allow delete: if false;
+    }
+
+    match /favoritos_restaurante/{id} {
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid;
+      allow read, delete: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+      allow update: if false;
+    }
+
+    match /resenas_restaurante/{id} {
+      allow create, update: if request.auth != null
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.pedidoId == id;
+      allow read: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+      allow delete: if false;
+    }
+  }
+}
+
+Nota: esas reglas son para práctica. Para producción se debe limitar más el update de pedidos según rol.
