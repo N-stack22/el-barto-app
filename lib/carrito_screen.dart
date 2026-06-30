@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -5,6 +7,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'auth_screen.dart';
 import 'auth_service.dart';
 import 'cart_controller.dart';
+import 'coupon_service.dart';
 import 'delivery_service.dart';
 import 'mapa_entrega_screen.dart';
 import 'tu_screen.dart';
@@ -24,10 +27,7 @@ class CarritoScreen extends StatelessWidget {
 class CarritoView extends StatefulWidget {
   final bool showTitle;
 
-  const CarritoView({
-    super.key,
-    this.showTitle = true,
-  });
+  const CarritoView({super.key, this.showTitle = true});
 
   @override
   State<CarritoView> createState() => _CarritoViewState();
@@ -40,14 +40,32 @@ class _CarritoViewState extends State<CarritoView> {
   final CartController _cart = CartController.instance;
 
   DeliveryEstimate? _delivery;
+  CustomerCoupon? _selectedCoupon;
   bool _loadingDelivery = false;
   bool _savingOrder = false;
   String? _deliveryError;
 
+  double get _discount =>
+      CouponService.discountAmount(_selectedCoupon, _cart.subtotal);
 
-  double get _total => _cart.subtotal + (_delivery?.costoDelivery ?? 0);
+  double get _discountedSubtotal => math.max(0.0, _cart.subtotal - _discount);
+
+  double get _total => _discountedSubtotal + (_delivery?.costoDelivery ?? 0);
 
   String _money(double value) => 'S/. ${value.toStringAsFixed(2)}';
+
+  String _text(dynamic value, [String fallback = '']) {
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? fallback : text;
+  }
+
+  Future<Map<String, dynamic>> _clientePerfil(String uid) async {
+    final doc = await FirebaseFirestore.instance
+        .collection('usuarios')
+        .doc(uid)
+        .get();
+    return doc.data() ?? const <String, dynamic>{};
+  }
 
   Widget _image(String imagenUrl) {
     if (imagenUrl.trim().isEmpty) {
@@ -79,7 +97,6 @@ class _CarritoViewState extends State<CarritoView> {
     );
   }
 
-
   Future<void> _confirmarQuitar(CartItem item) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -104,17 +121,17 @@ class _CarritoViewState extends State<CarritoView> {
     _cart.remove(item.lineId);
 
     if (_cart.isEmpty && mounted) {
-      setState(() => _delivery = null);
+      setState(() {
+        _delivery = null;
+        _selectedCoupon = null;
+      });
     }
   }
-
 
   Future<void> _abrirMapaEntrega() async {
     final ubicacion = await Navigator.push<LatLng>(
       context,
-      MaterialPageRoute(
-        builder: (_) => const MapaEntregaScreen(),
-      ),
+      MaterialPageRoute(builder: (_) => const MapaEntregaScreen()),
     );
 
     if (ubicacion == null) return;
@@ -164,7 +181,9 @@ class _CarritoViewState extends State<CarritoView> {
     if (_delivery == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Primero elige y confirma tu ubicación de entrega en el mapa.'),
+          content: Text(
+            'Primero elige y confirma tu ubicación de entrega en el mapa.',
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -174,7 +193,9 @@ class _CarritoViewState extends State<CarritoView> {
     if (_delivery?.dentroZona == false) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('La ubicación está fuera de la zona de delivery configurada.'),
+          content: Text(
+            'La ubicación está fuera de la zona de delivery configurada.',
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -192,13 +213,45 @@ class _CarritoViewState extends State<CarritoView> {
     try {
       final delivery = _delivery!;
       final config = await DeliveryService.loadConfig();
-      final orderRef = await FirebaseFirestore.instance.collection('pedidos_restaurante').add({
+      final clientePerfil = await _clientePerfil(user.uid);
+      final clienteTelefono = _text(
+        clientePerfil['telefono'],
+        _text(clientePerfil['celular'], user.phoneNumber ?? ''),
+      );
+      final clienteNombre = _text(
+        clientePerfil['nombreCompleto'],
+        _text(clientePerfil['nombres'], user.displayName ?? ''),
+      );
+      final coupon = _selectedCoupon?.isAvailable == true
+          ? _selectedCoupon
+          : null;
+      final discount = CouponService.discountAmount(coupon, _cart.subtotal);
+      final orderRef = FirebaseFirestore.instance
+          .collection('pedidos_restaurante')
+          .doc();
+      final batch = FirebaseFirestore.instance.batch();
+
+      batch.set(orderRef, {
         'userId': user.uid,
         'email': user.email,
+        'clienteEmail': user.email,
+        'clienteNombre': clienteNombre,
+        'clienteTelefono': clienteTelefono,
         'items': _cart.items.map((item) => item.toMap()).toList(),
         'subtotal': _cart.subtotal,
         'delivery': delivery.costoDelivery,
-        'total': _total,
+        'descuento': discount,
+        'totalAntesDescuento': _cart.subtotal + delivery.costoDelivery,
+        'total':
+            math.max(0.0, _cart.subtotal - discount) + delivery.costoDelivery,
+        if (coupon != null) ...{
+          'cuponId': coupon.id,
+          'cupon': {
+            'codigo': coupon.code,
+            'origen': coupon.origin,
+            'descuentoPorcentaje': coupon.discountPercentage,
+          },
+        },
         'restauranteUbicacion': {
           'lat': config.restaurantLat,
           'lng': config.restaurantLng,
@@ -231,18 +284,29 @@ class _CarritoViewState extends State<CarritoView> {
         'repartidorRumbo': 0,
         'repartidorActualizadoEn': null,
         'rechazadosPor': <String>[],
-        'gananciaRepartidor': double.parse((delivery.costoDelivery * 0.70).clamp(3.0, 999.0).toStringAsFixed(2)),
+        'gananciaRepartidor': double.parse(
+          (delivery.costoDelivery * 0.70).clamp(3.0, 999.0).toStringAsFixed(2),
+        ),
 
         'creadoEn': FieldValue.serverTimestamp(),
         'estadoActualizadoEn': FieldValue.serverTimestamp(),
       });
+      if (coupon != null) {
+        CouponService.markCouponUsedInBatch(batch, coupon, orderRef.id);
+      }
+      await batch.commit();
 
       _cart.clear();
       if (!mounted) return;
-      setState(() => _delivery = null);
+      setState(() {
+        _delivery = null;
+        _selectedCoupon = null;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Pedido registrado. Puedes revisar su detalle y cancelarlo si aún está pendiente.'),
+          content: Text(
+            'Pedido registrado. Puedes revisar su detalle y cancelarlo si aún está pendiente.',
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -266,6 +330,8 @@ class _CarritoViewState extends State<CarritoView> {
   }
 
   Widget _emptyCart() {
+    final colors = Theme.of(context).colorScheme;
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -279,18 +345,22 @@ class _CarritoViewState extends State<CarritoView> {
                 color: amarillo,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.shopping_cart_outlined, size: 48, color: negro),
+              child: const Icon(
+                Icons.shopping_cart_outlined,
+                size: 48,
+                color: negro,
+              ),
             ),
             const SizedBox(height: 18),
-            const Text(
+            Text(
               'Tu carrito está vacío',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'Agrega platos desde Inicio o Categorías.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.black54),
+              style: TextStyle(color: colors.onSurface.withOpacity(0.64)),
             ),
           ],
         ),
@@ -299,12 +369,14 @@ class _CarritoViewState extends State<CarritoView> {
   }
 
   Widget _cartItem(CartItem item) {
+    final colors = Theme.of(context).colorScheme;
+
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.black.withOpacity(0.06)),
+        border: Border.all(color: colors.outlineVariant),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.04),
@@ -325,7 +397,10 @@ class _CarritoViewState extends State<CarritoView> {
                   item.nombre,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 15,
+                  ),
                 ),
                 const SizedBox(height: 3),
                 Text(
@@ -334,12 +409,18 @@ class _CarritoViewState extends State<CarritoView> {
                       : '${item.categoria} · ${item.variante}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.black54, fontSize: 12),
+                  style: TextStyle(
+                    color: colors.onSurface.withOpacity(0.64),
+                    fontSize: 12,
+                  ),
                 ),
                 const SizedBox(height: 5),
                 Text(
                   '${_money(item.precioUnitario)} c/u',
-                  style: const TextStyle(fontWeight: FontWeight.w800, color: negro),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    color: colors.onSurface,
+                  ),
                 ),
               ],
             ),
@@ -349,7 +430,10 @@ class _CarritoViewState extends State<CarritoView> {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _qtyButton(Icons.remove_rounded, () => _cart.decrease(item.lineId)),
+                  _qtyButton(
+                    Icons.remove_rounded,
+                    () => _cart.decrease(item.lineId),
+                  ),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                     child: Text(
@@ -357,7 +441,10 @@ class _CarritoViewState extends State<CarritoView> {
                       style: const TextStyle(fontWeight: FontWeight.w900),
                     ),
                   ),
-                  _qtyButton(Icons.add_rounded, () => _cart.increase(item.lineId)),
+                  _qtyButton(
+                    Icons.add_rounded,
+                    () => _cart.increase(item.lineId),
+                  ),
                 ],
               ),
               const SizedBox(height: 6),
@@ -401,31 +488,39 @@ class _CarritoViewState extends State<CarritoView> {
   }
 
   Widget _deliveryBox() {
+    final colors = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final mutedText = colors.onSurface.withOpacity(0.68);
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.black.withOpacity(0.06)),
+        border: Border.all(color: colors.outlineVariant),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(Icons.delivery_dining_rounded, color: negro),
-              SizedBox(width: 8),
+              Icon(Icons.delivery_dining_rounded, color: colors.onSurface),
+              const SizedBox(width: 8),
               Text(
                 'Delivery en Huancayo',
-                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                style: TextStyle(
+                  color: colors.onSurface,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 16,
+                ),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             'Primero confirma tu punto de entrega en el mapa. La app abrirá tu ubicación detectada y podrás mover el marcador si el GPS no es exacto.',
-            style: TextStyle(color: Colors.black54, fontSize: 12.5),
+            style: TextStyle(color: mutedText, fontSize: 12.5),
           ),
           const SizedBox(height: 12),
           SizedBox(
@@ -450,7 +545,10 @@ class _CarritoViewState extends State<CarritoView> {
             const SizedBox(height: 10),
             Text(
               _deliveryError!,
-              style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w700),
+              style: const TextStyle(
+                color: Colors.red,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ],
           if (_delivery != null) ...[
@@ -459,21 +557,53 @@ class _CarritoViewState extends State<CarritoView> {
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: _delivery!.dentroZona ? const Color(0xFFFFFAE5) : const Color(0xFFFFEBEE),
+                color: _delivery!.dentroZona
+                    ? dark
+                          ? colors.surfaceContainerHighest
+                          : const Color(0xFFFFFAE5)
+                    : dark
+                    ? const Color(0xFF3A1717)
+                    : const Color(0xFFFFEBEE),
                 borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: _delivery!.dentroZona
+                      ? colors.outlineVariant
+                      : Colors.red.shade300,
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Distancia: ${_delivery!.distanciaTexto}'),
-                  Text('Tiempo aprox.: ${_delivery!.duracionTexto}'),
-                  Text('Delivery: ${_money(_delivery!.costoDelivery)}'),
+                  Text(
+                    'Distancia: ${_delivery!.distanciaTexto}',
+                    style: TextStyle(
+                      color: colors.onSurface,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Text(
+                    'Tiempo aprox.: ${_delivery!.duracionTexto}',
+                    style: TextStyle(
+                      color: colors.onSurface,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  Text(
+                    'Delivery: ${_money(_delivery!.costoDelivery)}',
+                    style: TextStyle(
+                      color: colors.onSurface,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
                   if (!_delivery!.dentroZona)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 6),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
                       child: Text(
                         'Fuera de la zona configurada para delivery.',
-                        style: TextStyle(color: Colors.red, fontWeight: FontWeight.w900),
+                        style: TextStyle(
+                          color: dark ? Colors.red.shade200 : Colors.red,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                     ),
                 ],
@@ -485,21 +615,130 @@ class _CarritoViewState extends State<CarritoView> {
     );
   }
 
+  Widget _couponBox() {
+    final user = AuthService().currentUser;
+    if (user == null) return const SizedBox.shrink();
+    final colors = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final boxColor = dark ? const Color(0xFF211B08) : const Color(0xFFFFFAE5);
+    final borderColor = dark
+        ? amarillo.withOpacity(0.46)
+        : amarillo.withOpacity(0.65);
+
+    return StreamBuilder<List<CustomerCoupon>>(
+      stream: CouponService.availableCouponsStream(user.uid),
+      builder: (context, snapshot) {
+        final coupons = snapshot.data ?? const <CustomerCoupon>[];
+        final selectedId =
+            coupons.any((coupon) => coupon.id == _selectedCoupon?.id)
+            ? _selectedCoupon!.id
+            : '';
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: boxColor,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: borderColor),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.local_activity_rounded,
+                    color: dark ? amarillo : negro,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Cupon',
+                    style: TextStyle(
+                      color: colors.onSurface,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (coupons.isEmpty)
+                Text(
+                  'No tienes cupones disponibles.',
+                  style: TextStyle(
+                    color: colors.onSurface.withOpacity(0.68),
+                    fontWeight: FontWeight.w700,
+                  ),
+                )
+              else
+                DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: selectedId,
+                    isExpanded: true,
+                    dropdownColor: boxColor,
+                    iconEnabledColor: colors.onSurface,
+                    style: TextStyle(
+                      color: colors.onSurface,
+                      fontWeight: FontWeight.w800,
+                    ),
+                    items: [
+                      const DropdownMenuItem(
+                        value: '',
+                        child: Text('Sin cupon'),
+                      ),
+                      ...coupons.map(
+                        (coupon) => DropdownMenuItem(
+                          value: coupon.id,
+                          child: Text(
+                            '${coupon.code} - ${coupon.discountPercentage}% menos',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      setState(() {
+                        if (value == null || value.isEmpty) {
+                          _selectedCoupon = null;
+                          return;
+                        }
+                        _selectedCoupon = coupons.firstWhere(
+                          (coupon) => coupon.id == value,
+                        );
+                      });
+                    },
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   Widget _summary() {
+    final colors = Theme.of(context).colorScheme;
+
     return Container(
       padding: const EdgeInsets.all(18),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
       ),
       child: SafeArea(
         top: false,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            _couponBox(),
+            const SizedBox(height: 10),
             _totalRow('Subtotal', _cart.subtotal),
             const SizedBox(height: 8),
             _totalRow('Delivery', _delivery?.costoDelivery ?? 0),
+            if (_discount > 0) ...[
+              const SizedBox(height: 8),
+              _discountRow('Cupon ${_selectedCoupon?.code ?? ''}', _discount),
+            ],
             const Divider(height: 24),
             _totalRow('Total', _total, big: true),
             const SizedBox(height: 14),
@@ -519,10 +758,13 @@ class _CarritoViewState extends State<CarritoView> {
               ),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'La pasarela de pago aún no se implementa. El pedido queda como pendiente.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 11.5, color: Colors.black54),
+              style: TextStyle(
+                fontSize: 11.5,
+                color: colors.onSurface.withOpacity(0.62),
+              ),
             ),
           ],
         ),
@@ -531,6 +773,8 @@ class _CarritoViewState extends State<CarritoView> {
   }
 
   Widget _totalRow(String label, double value, {bool big = false}) {
+    final colors = Theme.of(context).colorScheme;
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -546,7 +790,27 @@ class _CarritoViewState extends State<CarritoView> {
           style: TextStyle(
             fontSize: big ? 22 : 15,
             fontWeight: FontWeight.w900,
-            color: negro,
+            color: colors.onSurface,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _discountRow(String label, double value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+        ),
+        Text(
+          '- ${_money(value)}',
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w900,
+            color: Colors.green.shade700,
           ),
         ),
       ],
@@ -575,18 +839,30 @@ class _CarritoViewState extends State<CarritoView> {
                           const Expanded(
                             child: Text(
                               'Mi carrito',
-                              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
                           )
                         else
                           const Expanded(
                             child: Text(
                               'Revisa tu pedido',
-                              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+                              style: TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
                           ),
                         TextButton.icon(
-                          onPressed: _cart.clear,
+                          onPressed: () {
+                            _cart.clear();
+                            setState(() {
+                              _delivery = null;
+                              _selectedCoupon = null;
+                            });
+                          },
                           icon: const Icon(Icons.delete_sweep_rounded),
                           label: const Text('Vaciar'),
                         ),

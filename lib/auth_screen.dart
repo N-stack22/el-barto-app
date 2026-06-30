@@ -5,10 +5,7 @@ import 'dni_service.dart';
 class AuthScreen extends StatefulWidget {
   final bool returnToPrevious;
 
-  const AuthScreen({
-    super.key,
-    this.returnToPrevious = false,
-  });
+  const AuthScreen({super.key, this.returnToPrevious = false});
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
@@ -58,10 +55,7 @@ class _AuthScreenState extends State<AuthScreen> {
       } else if (password.isEmpty) {
         error = 'Ingresa tu contraseña';
       } else {
-        error = await _authService.login(
-          email: email,
-          password: password,
-        );
+        error = await _authService.login(email: email, password: password);
       }
     } else {
       final confirmPassword = _confirmPasswordController.text;
@@ -117,8 +111,9 @@ class _AuthScreenState extends State<AuthScreen> {
 
     if (!DniService.esDniValido(dni)) {
       if (mounted) {
-        setState(() =>
-            _errorMessage = 'El DNI debe tener exactamente 8 números');
+        setState(
+          () => _errorMessage = 'El DNI debe tener exactamente 8 números',
+        );
       }
       return;
     }
@@ -153,8 +148,20 @@ class _AuthScreenState extends State<AuthScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final inputFill = dark ? const Color(0xFF1D1D1D) : Colors.white;
+    final inputBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: BorderSide(color: colors.outlineVariant),
+    );
+    final focusedInputBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: const BorderSide(color: Color(0xFFFFC928), width: 2),
+    );
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F7F7),
+      backgroundColor: colors.surface,
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -166,16 +173,16 @@ class _AuthScreenState extends State<AuthScreen> {
               Text(
                 'El Barto',
                 style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                      color: const Color(0xFF050505),
-                      fontWeight: FontWeight.bold,
-                    ),
+                  color: colors.onSurface,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 8),
               Text(
                 _isLogin ? 'Bienvenido de vuelta' : 'Crea tu cuenta',
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: const Color(0xFF111111),
-                    ),
+                  color: colors.onSurface.withOpacity(0.82),
+                ),
               ),
               const SizedBox(height: 40),
 
@@ -200,14 +207,16 @@ class _AuthScreenState extends State<AuthScreen> {
                                 ),
                               )
                             : _dniData != null
-                                ? const Icon(Icons.check_circle,
-                                    color: Colors.green)
-                                : null,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                            ? const Icon(
+                                Icons.check_circle,
+                                color: Colors.green,
+                              )
+                            : null,
+                        border: inputBorder,
+                        enabledBorder: inputBorder,
+                        focusedBorder: focusedInputBorder,
                         filled: true,
-                        fillColor: Colors.white,
+                        fillColor: inputFill,
                       ),
                       keyboardType: TextInputType.number,
                       maxLength: 8,
@@ -231,8 +240,12 @@ class _AuthScreenState extends State<AuthScreen> {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: _dniData != null
                               ? Colors.green
+                              : dark
+                              ? const Color(0xFFFFC928)
                               : const Color(0xFF050505),
-                          foregroundColor: Colors.white,
+                          foregroundColor: _dniData != null || !dark
+                              ? Colors.white
+                              : const Color(0xFF050505),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
@@ -244,9 +257,15 @@ class _AuthScreenState extends State<AuthScreen> {
                         margin: const EdgeInsets.only(top: 12),
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.green.shade50,
+                          color: dark
+                              ? const Color(0xFF11331E)
+                              : Colors.green.shade50,
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.green.shade300),
+                          border: Border.all(
+                            color: dark
+                                ? Colors.green.shade300
+                                : Colors.green.shade300,
+                          ),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -255,7 +274,9 @@ class _AuthScreenState extends State<AuthScreen> {
                               'Datos validados:',
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
-                                color: Colors.green.shade700,
+                                color: dark
+                                    ? Colors.green.shade100
+                                    : Colors.green.shade700,
                               ),
                             ),
                             const SizedBox(height: 6),
@@ -263,7 +284,9 @@ class _AuthScreenState extends State<AuthScreen> {
                               _dniData!.nombreCompleto,
                               style: TextStyle(
                                 fontSize: 13,
-                                color: Colors.green.shade900,
+                                color: dark
+                                    ? Colors.green.shade50
+                                    : Colors.green.shade900,
                               ),
                             ),
                           ],
@@ -279,11 +302,11 @@ class _AuthScreenState extends State<AuthScreen> {
                 decoration: InputDecoration(
                   labelText: 'Email',
                   prefixIcon: const Icon(Icons.email),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                  border: inputBorder,
+                  enabledBorder: inputBorder,
+                  focusedBorder: focusedInputBorder,
                   filled: true,
-                  fillColor: Colors.white,
+                  fillColor: inputFill,
                 ),
                 keyboardType: TextInputType.emailAddress,
               ),
@@ -295,11 +318,11 @@ class _AuthScreenState extends State<AuthScreen> {
                 decoration: InputDecoration(
                   labelText: 'Contraseña',
                   prefixIcon: const Icon(Icons.lock),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                  border: inputBorder,
+                  enabledBorder: inputBorder,
+                  focusedBorder: focusedInputBorder,
                   filled: true,
-                  fillColor: Colors.white,
+                  fillColor: inputFill,
                 ),
                 obscureText: true,
               ),
@@ -314,11 +337,11 @@ class _AuthScreenState extends State<AuthScreen> {
                       decoration: InputDecoration(
                         labelText: 'Confirmar contraseña',
                         prefixIcon: const Icon(Icons.lock),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                        border: inputBorder,
+                        enabledBorder: inputBorder,
+                        focusedBorder: focusedInputBorder,
                         filled: true,
-                        fillColor: Colors.white,
+                        fillColor: inputFill,
                       ),
                       obscureText: true,
                     ),
@@ -331,13 +354,17 @@ class _AuthScreenState extends State<AuthScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.red.shade100,
+                    color: dark ? const Color(0xFF3A1717) : Colors.red.shade100,
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.red.shade400),
+                    border: Border.all(
+                      color: dark ? Colors.red.shade300 : Colors.red.shade400,
+                    ),
                   ),
                   child: Text(
                     _errorMessage!,
-                    style: TextStyle(color: Colors.red.shade700),
+                    style: TextStyle(
+                      color: dark ? Colors.red.shade100 : Colors.red.shade700,
+                    ),
                   ),
                 ),
               if (_errorMessage != null) const SizedBox(height: 16),
@@ -350,7 +377,12 @@ class _AuthScreenState extends State<AuthScreen> {
                       ? null
                       : _handleAuth,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF050505),
+                    backgroundColor: dark
+                        ? const Color(0xFFFFC928)
+                        : const Color(0xFF050505),
+                    foregroundColor: dark
+                        ? const Color(0xFF050505)
+                        : Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -362,14 +394,17 @@ class _AuthScreenState extends State<AuthScreen> {
                           width: 20,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor:
-                                AlwaysStoppedAnimation<Color>(Colors.white),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
                           ),
                         )
                       : Text(
                           _isLogin ? 'Iniciar sesión' : 'Registrarse',
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: TextStyle(
+                            color: dark
+                                ? const Color(0xFF050505)
+                                : Colors.white,
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                           ),
@@ -383,28 +418,32 @@ class _AuthScreenState extends State<AuthScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    _isLogin
-                        ? '¿No tienes cuenta? '
-                        : '¿Ya tienes cuenta? ',
-                    style: const TextStyle(color: Color(0xFF8D5A1B)),
+                    _isLogin ? '¿No tienes cuenta? ' : '¿Ya tienes cuenta? ',
+                    style: TextStyle(
+                      color: dark
+                          ? const Color(0xFFFFC928).withOpacity(0.82)
+                          : const Color(0xFF8D5A1B),
+                    ),
                   ),
                   GestureDetector(
                     onTap: () {
                       if (mounted) {
                         setState(() {
-                        _isLogin = !_isLogin;
-                        _errorMessage = null;
-                        _passwordController.clear();
-                        _confirmPasswordController.clear();
-                        _dniController.clear();
-                        _dniData = null;
+                          _isLogin = !_isLogin;
+                          _errorMessage = null;
+                          _passwordController.clear();
+                          _confirmPasswordController.clear();
+                          _dniController.clear();
+                          _dniData = null;
                         });
                       }
                     },
                     child: Text(
                       _isLogin ? 'Regístrate' : 'Inicia sesión',
-                      style: const TextStyle(
-                        color: Color(0xFF5D3517),
+                      style: TextStyle(
+                        color: dark
+                            ? const Color(0xFFFFC928)
+                            : const Color(0xFF5D3517),
                         fontWeight: FontWeight.bold,
                         decoration: TextDecoration.underline,
                       ),

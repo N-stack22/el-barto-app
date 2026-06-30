@@ -1,1 +1,95 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"rodriguezriosnathalie","appId":"1:462582707865:android:bc794488870e0941982a08","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"rodriguezriosnathalie","configurations":{"android":"1:462582707865:android:bc794488870e0941982a08","ios":"1:462582707865:ios:0b9de10374df02b1982a08","macos":"1:462582707865:ios:0b9de10374df02b1982a08","web":"1:462582707865:web:a1b4c748c18e275d982a08","windows":"1:462582707865:web:6b5420713adc31bc982a08"}}}}}}
+{
+  "hosting": {
+    "public": "build/web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "headers": [
+      {
+        "source": "/index.html",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/flutter_bootstrap.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/main.dart.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/flutter.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/flutter_service_worker.js",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/manifest.json",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      }
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "rodriguezriosnathalie",
+          "appId": "1:462582707865:android:bc794488870e0941982a08",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "rodriguezriosnathalie",
+          "configurations": {
+            "android": "1:462582707865:android:bc794488870e0941982a08",
+            "ios": "1:462582707865:ios:0b9de10374df02b1982a08",
+            "macos": "1:462582707865:ios:0b9de10374df02b1982a08",
+            "web": "1:462582707865:web:a1b4c748c18e275d982a08",
+            "windows": "1:462582707865:web:6b5420713adc31bc982a08"
+          }
+        }
+      }
+    }
+  }
+}

@@ -55,10 +55,7 @@ class _RestauranteScreenState extends State<RestauranteScreen>
     );
 
     _scaleAnimation = Tween<double>(begin: 1.0, end: 1.25).animate(
-      CurvedAnimation(
-        parent: _iconAnimationController,
-        curve: Curves.easeOut,
-      ),
+      CurvedAnimation(parent: _iconAnimationController, curve: Curves.easeOut),
     );
   }
 
@@ -81,7 +78,7 @@ class _RestauranteScreenState extends State<RestauranteScreen>
     final precioFamiliar = data['precioFamiliar'];
 
     if (precioFamiliar is num) {
-      return 'M: ${_money(precio)}  ·  F: ${_money(precioFamiliar.toDouble())}';
+      return 'M: ${_money(precio)} / F: ${_money(precioFamiliar.toDouble())}';
     }
 
     return _money(precio);
@@ -136,7 +133,6 @@ class _RestauranteScreenState extends State<RestauranteScreen>
     );
   }
 
-
   Future<void> _toggleFavorito(Map<String, dynamic> producto) async {
     var user = AuthService().currentUser;
 
@@ -163,7 +159,9 @@ class _RestauranteScreenState extends State<RestauranteScreen>
           duration: const Duration(milliseconds: 1000),
           behavior: SnackBarBehavior.floating,
           margin: const EdgeInsets.only(bottom: 88, left: 16, right: 16),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
         ),
       );
     } catch (e) {
@@ -201,7 +199,9 @@ class _RestauranteScreenState extends State<RestauranteScreen>
                   width: 40,
                   height: 40,
                   child: Icon(
-                    isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                    isFavorite
+                        ? Icons.favorite_rounded
+                        : Icons.favorite_border_rounded,
                     color: isFavorite ? Colors.red : negro,
                     size: 23,
                   ),
@@ -266,11 +266,7 @@ class _RestauranteScreenState extends State<RestauranteScreen>
           borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
         ),
         child: const Center(
-          child: Icon(
-            Icons.restaurant_menu_rounded,
-            size: 48,
-            color: negro,
-          ),
+          child: Icon(Icons.restaurant_menu_rounded, size: 48, color: negro),
         ),
       );
     }
@@ -295,7 +291,11 @@ class _RestauranteScreenState extends State<RestauranteScreen>
             width: double.infinity,
             color: const Color(0xFFFFEBEE),
             child: const Center(
-              child: Icon(Icons.broken_image_rounded, size: 45, color: Colors.red),
+              child: Icon(
+                Icons.broken_image_rounded,
+                size: 45,
+                color: Colors.red,
+              ),
             ),
           );
         },
@@ -303,7 +303,9 @@ class _RestauranteScreenState extends State<RestauranteScreen>
     );
   }
 
-  void _mostrarDetalleProducto(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+  void _mostrarDetalleProducto(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
     final data = {'id': doc.id, ...doc.data()};
     final nombre = data['nombre']?.toString() ?? 'Producto';
     final categoria = data['categoria']?.toString() ?? 'Sin categoría';
@@ -359,7 +361,10 @@ class _RestauranteScreenState extends State<RestauranteScreen>
                 ),
                 const SizedBox(height: 6),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: amarillo.withOpacity(0.32),
                     borderRadius: BorderRadius.circular(999),
@@ -398,7 +403,11 @@ class _RestauranteScreenState extends State<RestauranteScreen>
                       Expanded(
                         child: ElevatedButton.icon(
                           onPressed: () {
-                            _agregarAlCarrito(data, variante: 'Mediana', precio: precio);
+                            _agregarAlCarrito(
+                              data,
+                              variante: 'Mediana',
+                              precio: precio,
+                            );
                             Navigator.pop(context);
                           },
                           icon: const Icon(Icons.add_shopping_cart_rounded),
@@ -449,13 +458,14 @@ class _RestauranteScreenState extends State<RestauranteScreen>
     final imagenUrl = data['imagenUrl'] ?? '';
     final disponible = data['disponible'] == true;
     final destacado = data['destacado'] == true;
+    final colors = Theme.of(context).colorScheme;
 
     return Card(
       elevation: 1.5,
-      color: Colors.white,
+      color: colors.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18),
-        side: BorderSide(color: Colors.black.withOpacity(0.06)),
+        side: BorderSide(color: colors.outlineVariant),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -472,7 +482,10 @@ class _RestauranteScreenState extends State<RestauranteScreen>
                     top: 10,
                     left: 10,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
                       decoration: BoxDecoration(
                         color: amarillo,
                         borderRadius: BorderRadius.circular(20),
@@ -487,11 +500,7 @@ class _RestauranteScreenState extends State<RestauranteScreen>
                       ),
                     ),
                   ),
-                Positioned(
-                  top: 8,
-                  right: 8,
-                  child: _favoritoButton(data),
-                ),
+                Positioned(top: 8, right: 8, child: _favoritoButton(data)),
               ],
             ),
             Padding(
@@ -508,11 +517,11 @@ class _RestauranteScreenState extends State<RestauranteScreen>
                         nombre.toString(),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontWeight: FontWeight.w900,
                           fontSize: 13.4,
                           height: 1.05,
-                          color: negro,
+                          color: colors.onSurface,
                         ),
                       ),
                     ),
@@ -529,7 +538,10 @@ class _RestauranteScreenState extends State<RestauranteScreen>
                               minWidth: 104,
                               maxWidth: 136,
                             ),
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
                             decoration: BoxDecoration(
                               color: negro,
                               borderRadius: BorderRadius.circular(999),
@@ -569,9 +581,9 @@ class _RestauranteScreenState extends State<RestauranteScreen>
                           customBorder: const CircleBorder(),
                           onTap: disponible
                               ? () => _agregarAlCarrito(
-                                    data,
-                                    precio: _precio(data['precio']),
-                                  )
+                                  data,
+                                  precio: _precio(data['precio']),
+                                )
                               : null,
                           child: const SizedBox(
                             width: 40,
@@ -592,8 +604,10 @@ class _RestauranteScreenState extends State<RestauranteScreen>
   }
 
   Widget _productosStream({
-    required Widget Function(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs)
-        builder,
+    required Widget Function(
+      List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    )
+    builder,
   }) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _productosRef.orderBy('orden').snapshots(),
@@ -605,7 +619,10 @@ class _RestauranteScreenState extends State<RestauranteScreen>
               child: Text(
                 'Error al cargar productos:\n${snapshot.error}',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  color: Colors.red,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           );
@@ -631,11 +648,11 @@ class _RestauranteScreenState extends State<RestauranteScreen>
     );
   }
 
-  Widget _gridProductos(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
+  Widget _gridProductos(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
     if (docs.isEmpty) {
-      return const Center(
-        child: Text('No hay productos para mostrar.'),
-      );
+      return const Center(child: Text('No hay productos para mostrar.'));
     }
 
     return LayoutBuilder(
@@ -657,7 +674,6 @@ class _RestauranteScreenState extends State<RestauranteScreen>
     );
   }
 
-
   Widget _imagenCircularCategoria(String imagenUrl, {double size = 88}) {
     final url = imagenUrl.trim();
 
@@ -669,7 +685,11 @@ class _RestauranteScreenState extends State<RestauranteScreen>
           shape: BoxShape.circle,
           color: Color(0xFFFFF1B8),
         ),
-        child: Icon(Icons.restaurant_menu_rounded, color: negro, size: size * 0.42),
+        child: Icon(
+          Icons.restaurant_menu_rounded,
+          color: negro,
+          size: size * 0.42,
+        ),
       );
     }
 
@@ -704,7 +724,11 @@ class _RestauranteScreenState extends State<RestauranteScreen>
             shape: BoxShape.circle,
             color: Color(0xFFFFEBEE),
           ),
-          child: Icon(Icons.broken_image_rounded, color: Colors.red, size: size * 0.36),
+          child: Icon(
+            Icons.broken_image_rounded,
+            color: Colors.red,
+            size: size * 0.36,
+          ),
         ),
       ),
     );
@@ -741,11 +765,18 @@ class _RestauranteScreenState extends State<RestauranteScreen>
                       shape: const CircleBorder(),
                       child: InkWell(
                         customBorder: const CircleBorder(),
-                        onTap: () => _agregarAlCarrito(data, precio: _precio(data['precio'])),
+                        onTap: () => _agregarAlCarrito(
+                          data,
+                          precio: _precio(data['precio']),
+                        ),
                         child: const SizedBox(
                           width: 34,
                           height: 34,
-                          child: Icon(Icons.add_rounded, size: 23, color: negro),
+                          child: Icon(
+                            Icons.add_rounded,
+                            size: 23,
+                            color: negro,
+                          ),
                         ),
                       ),
                     ),
@@ -758,7 +789,11 @@ class _RestauranteScreenState extends State<RestauranteScreen>
                         shape: BoxShape.circle,
                       ),
                       child: const Center(
-                        child: Icon(Icons.block_rounded, color: Colors.black54, size: 26),
+                        child: Icon(
+                          Icons.block_rounded,
+                          color: Colors.black54,
+                          size: 26,
+                        ),
                       ),
                     ),
                   ),
@@ -829,7 +864,12 @@ class _RestauranteScreenState extends State<RestauranteScreen>
         final itemHeight = constraints.maxWidth < 300 ? 198.0 : 218.0;
 
         return GridView.builder(
-          padding: const EdgeInsets.only(top: 8, bottom: 28, right: 10, left: 8),
+          padding: const EdgeInsets.only(
+            top: 8,
+            bottom: 28,
+            right: 10,
+            left: 8,
+          ),
           itemCount: docs.length,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: 2,
@@ -837,10 +877,8 @@ class _RestauranteScreenState extends State<RestauranteScreen>
             crossAxisSpacing: 10,
             mainAxisExtent: itemHeight,
           ),
-          itemBuilder: (context, index) => _productoCategoriaTile(
-            docs[index],
-            imageSize: imageSize,
-          ),
+          itemBuilder: (context, index) =>
+              _productoCategoriaTile(docs[index], imageSize: imageSize),
         );
       },
     );
@@ -865,8 +903,6 @@ class _RestauranteScreenState extends State<RestauranteScreen>
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(Icons.restaurant_menu_rounded, color: amarillo, size: 34),
-          SizedBox(height: 8),
           Text(
             'Carta digital',
             textAlign: TextAlign.center,
@@ -905,8 +941,11 @@ class _RestauranteScreenState extends State<RestauranteScreen>
                     icon: const Icon(Icons.close_rounded),
                   ),
             filled: true,
-            fillColor: Colors.white,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            fillColor: Theme.of(context).colorScheme.surface,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 14,
+            ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(18),
               borderSide: BorderSide.none,
@@ -929,13 +968,20 @@ class _RestauranteScreenState extends State<RestauranteScreen>
                 label: Text(categoria),
                 selected: seleccionado,
                 selectedColor: amarillo,
-                backgroundColor: Colors.white,
+                backgroundColor: Theme.of(context).colorScheme.surface,
                 labelStyle: TextStyle(
-                  color: Colors.black,
+                  color: seleccionado
+                      ? negro
+                      : Theme.of(context).colorScheme.onSurface,
                   fontWeight: seleccionado ? FontWeight.w900 : FontWeight.w600,
                 ),
-                side: BorderSide(color: seleccionado ? negro : Colors.grey.shade300),
-                onSelected: (_) => setState(() => _categoriaSeleccionada = categoria),
+                side: BorderSide(
+                  color: seleccionado
+                      ? negro
+                      : Theme.of(context).colorScheme.outlineVariant,
+                ),
+                onSelected: (_) =>
+                    setState(() => _categoriaSeleccionada = categoria),
               );
             },
           ),
@@ -985,7 +1031,9 @@ class _RestauranteScreenState extends State<RestauranteScreen>
           width: 116,
           decoration: BoxDecoration(
             color: const Color(0xFFF0F0F0),
-            border: Border(right: BorderSide(color: Colors.black.withOpacity(0.07))),
+            border: Border(
+              right: BorderSide(color: Colors.black.withOpacity(0.07)),
+            ),
           ),
           child: ListView.builder(
             padding: const EdgeInsets.only(top: 8, bottom: 16),
@@ -997,7 +1045,8 @@ class _RestauranteScreenState extends State<RestauranteScreen>
               return Material(
                 color: selected ? Colors.white : Colors.transparent,
                 child: InkWell(
-                  onTap: () => setState(() => _categoriaSeleccionada = categoria),
+                  onTap: () =>
+                      setState(() => _categoriaSeleccionada = categoria),
                   child: IntrinsicHeight(
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1009,7 +1058,10 @@ class _RestauranteScreenState extends State<RestauranteScreen>
                         ),
                         Expanded(
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 13),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 9,
+                              vertical: 13,
+                            ),
                             child: Text(
                               categoria,
                               maxLines: 5,
@@ -1017,7 +1069,9 @@ class _RestauranteScreenState extends State<RestauranteScreen>
                               style: TextStyle(
                                 fontSize: 12,
                                 height: 1.08,
-                                fontWeight: selected ? FontWeight.w900 : FontWeight.w600,
+                                fontWeight: selected
+                                    ? FontWeight.w900
+                                    : FontWeight.w600,
                                 color: selected ? negro : Colors.black87,
                               ),
                             ),
@@ -1063,7 +1117,12 @@ class _RestauranteScreenState extends State<RestauranteScreen>
                     child: _productosStream(
                       builder: (docs) {
                         final filtrados = docs
-                            .where((doc) => _pasaCategoria(doc.data(), _categoriaSeleccionada))
+                            .where(
+                              (doc) => _pasaCategoria(
+                                doc.data(),
+                                _categoriaSeleccionada,
+                              ),
+                            )
                             .toList();
                         return _gridProductosCategoria(filtrados);
                       },
@@ -1112,8 +1171,14 @@ class _RestauranteScreenState extends State<RestauranteScreen>
                 top: 6,
                 child: Container(
                   padding: const EdgeInsets.all(4),
-                  constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
-                  decoration: const BoxDecoration(color: amarillo, shape: BoxShape.circle),
+                  constraints: const BoxConstraints(
+                    minWidth: 20,
+                    minHeight: 20,
+                  ),
+                  decoration: const BoxDecoration(
+                    color: amarillo,
+                    shape: BoxShape.circle,
+                  ),
                   child: Text(
                     '${_cart.totalCantidad}',
                     textAlign: TextAlign.center,
@@ -1140,22 +1205,16 @@ class _RestauranteScreenState extends State<RestauranteScreen>
     ];
 
     return Scaffold(
-      backgroundColor: fondo,
-      appBar: CustomAppBar(
-        actions: [
-          _authAction(),
-        ],
-      ),
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: pages,
-      ),
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      appBar: CustomAppBar(actions: [_authAction()]),
+      body: IndexedStack(index: _selectedIndex, children: pages),
       bottomNavigationBar: AnimatedBuilder(
         animation: _cart,
         builder: (context, _) {
           return NavigationBar(
             selectedIndex: _selectedIndex,
-            onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+            onDestinationSelected: (index) =>
+                setState(() => _selectedIndex = index),
             destinations: [
               const NavigationDestination(
                 icon: Icon(Icons.home_outlined),

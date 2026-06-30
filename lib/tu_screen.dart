@@ -1,12 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import 'app_settings_controller.dart';
 import 'auth_screen.dart';
 import 'auth_service.dart';
 import 'cart_controller.dart';
-import 'sensores_screen.dart';
+import 'coupon_service.dart';
+import 'cupones_screen.dart';
 
 class TuScreen extends StatelessWidget {
   const TuScreen({super.key});
@@ -64,19 +67,34 @@ class TuScreen extends StatelessWidget {
     final nombres = data?['nombres']?.toString().trim();
     final displayName = user.displayName?.trim();
 
-    if (nombreCompleto != null && nombreCompleto.isNotEmpty) {
-      return nombreCompleto;
+    if (nombres != null && nombres.isNotEmpty) {
+      return _soloNombres(nombres);
     }
 
-    if (nombres != null && nombres.isNotEmpty) {
-      return nombres;
+    if (nombreCompleto != null && nombreCompleto.isNotEmpty) {
+      return _soloNombres(nombreCompleto);
     }
 
     if (displayName != null && displayName.isNotEmpty) {
-      return displayName;
+      return _soloNombres(displayName);
     }
 
-    return user.email?.split('@').first ?? 'Cliente';
+    return 'Cliente';
+  }
+
+  String _soloNombres(String value) {
+    var text = value.trim();
+    if (text.contains(',')) {
+      text = text.split(',').last.trim();
+    }
+
+    final parts = text
+        .split(RegExp(r'\s+'))
+        .where((part) => part.trim().isNotEmpty)
+        .toList();
+
+    if (parts.length <= 2) return parts.join(' ');
+    return parts.take(2).join(' ');
   }
 
   Widget _loginRequired(BuildContext context) {
@@ -127,8 +145,9 @@ class TuScreen extends StatelessWidget {
       future: _nombreUsuario(user),
       builder: (context, snapshot) {
         final nombre = snapshot.data ?? 'Cliente';
-        final email = user.email ?? '';
-        final inicial = nombre.trim().isNotEmpty ? nombre.trim()[0].toUpperCase() : 'E';
+        final inicial = nombre.trim().isNotEmpty
+            ? nombre.trim()[0].toUpperCase()
+            : 'E';
 
         return Container(
           width: double.infinity,
@@ -145,7 +164,10 @@ class TuScreen extends StatelessWidget {
                 foregroundColor: negro,
                 child: Text(
                   inicial,
-                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
               const SizedBox(width: 14),
@@ -155,7 +177,10 @@ class TuScreen extends StatelessWidget {
                   children: [
                     const Text(
                       'Hola,',
-                      style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w700),
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                     Text(
                       nombre,
@@ -167,13 +192,6 @@ class TuScreen extends StatelessWidget {
                         fontWeight: FontWeight.w900,
                       ),
                     ),
-                    if (email.isNotEmpty)
-                      Text(
-                        email,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white70, fontSize: 12.5),
-                      ),
                   ],
                 ),
               ),
@@ -184,7 +202,8 @@ class TuScreen extends StatelessWidget {
     );
   }
 
-  Widget _option({
+  Widget _option(
+    BuildContext context, {
     required IconData icon,
     required String title,
     required String subtitle,
@@ -192,7 +211,7 @@ class TuScreen extends StatelessWidget {
     Widget? trailing,
   }) {
     return Material(
-      color: Colors.white,
+      color: Theme.of(context).colorScheme.surface,
       borderRadius: BorderRadius.circular(18),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
@@ -217,21 +236,90 @@ class TuScreen extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15.5),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 15.5,
+                      ),
                     ),
                     const SizedBox(height: 3),
                     Text(
                       subtitle,
-                      style: const TextStyle(color: Colors.black54, fontSize: 12.5),
+                      style: TextStyle(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withOpacity(0.64),
+                        fontSize: 12.5,
+                      ),
                     ),
                   ],
                 ),
               ),
-              trailing ?? const Icon(Icons.chevron_right_rounded),
+              trailing ??
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withOpacity(0.62),
+                  ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  String _notificationText(Map<String, dynamic> data) {
+    final direct = data['notificacionCliente']?.toString().trim() ?? '';
+    if (direct.isNotEmpty) return direct;
+
+    final cancelReason = data['motivoCancelacion']?.toString().trim() ?? '';
+    if (cancelReason.isNotEmpty) {
+      return 'Tu pedido fue cancelado. Motivo: $cancelReason';
+    }
+
+    final message = data['mensajeCliente']?.toString().trim() ?? '';
+    if (message.isNotEmpty) return message;
+
+    return '';
+  }
+
+  Future<int> _couponNotificationCount(User user) async {
+    try {
+      final purchase = await CouponService.purchaseStatus(user);
+      final shake = await CouponService.shakeStatus(user);
+      return (purchase.canClaim ? 1 : 0) + (shake.canClaim ? 1 : 0);
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Widget _notificationTrailing(User user) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('pedidos_restaurante')
+          .where('userId', isEqualTo: user.uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final docs = snapshot.data?.docs ?? const [];
+        final unread = docs.where((doc) {
+          final data = doc.data();
+          return _notificationText(data).isNotEmpty &&
+              data['notificacionLeida'] != true;
+        }).length;
+
+        return FutureBuilder<int>(
+          future: _couponNotificationCount(user),
+          builder: (context, couponSnapshot) {
+            final total = unread + (couponSnapshot.data ?? 0);
+            if (total == 0) return const Icon(Icons.chevron_right_rounded);
+
+            return Badge.count(
+              count: total,
+              child: const Icon(Icons.chevron_right_rounded),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -262,20 +350,33 @@ class TuScreen extends StatelessWidget {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 10),
-            _option(
-              icon: Icons.sensors_rounded,
-              title: 'Probar sensores del celular',
-              subtitle: 'Ver acelerómetro, giroscopio, magnetómetro y userAccelerometer.',
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SensoresScreen()),
-              ),
+            ValueListenableBuilder<bool>(
+              valueListenable: AppSettingsController.darkMode,
+              builder: (context, darkMode, _) {
+                return _option(
+                  context,
+                  icon: darkMode
+                      ? Icons.dark_mode_rounded
+                      : Icons.light_mode_rounded,
+                  title: 'Modo nocturno',
+                  subtitle: darkMode
+                      ? 'La app esta usando colores oscuros.'
+                      : 'Activa colores oscuros para usar la app de noche.',
+                  trailing: Switch(
+                    value: darkMode,
+                    onChanged: AppSettingsController.setDarkMode,
+                  ),
+                  onTap: AppSettingsController.toggleDarkMode,
+                );
+              },
             ),
             const SizedBox(height: 10),
             _option(
+              context,
               icon: Icons.receipt_long_rounded,
               title: 'Tus pedidos',
-              subtitle: 'Consulta el detalle, estado y cancelación de tus pedidos.',
+              subtitle:
+                  'Consulta el detalle, estado y cancelación de tus pedidos.',
               onTap: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const TusPedidosScreen()),
@@ -283,6 +384,32 @@ class TuScreen extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             _option(
+              context,
+              icon: Icons.notifications_active_rounded,
+              title: 'Notificaciones',
+              subtitle: 'Cambios, cancelaciones y mensajes sobre tus pedidos.',
+              trailing: _notificationTrailing(user),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const ClienteNotificacionesScreen(),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            _option(
+              context,
+              icon: Icons.local_activity_rounded,
+              title: 'Cupones',
+              subtitle: 'Reclama descuentos y aplicalos en tu pedido.',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const CuponesScreen()),
+              ),
+            ),
+            const SizedBox(height: 10),
+            _option(
+              context,
               icon: Icons.favorite_rounded,
               title: 'Tus platos favoritos',
               subtitle: 'Guarda platos para pedirlos más rápido después.',
@@ -293,6 +420,7 @@ class TuScreen extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             _option(
+              context,
               icon: Icons.star_rate_rounded,
               title: 'Tus reseñas',
               subtitle: 'Reseña pedidos entregados y revisa los pendientes.',
@@ -308,13 +436,27 @@ class TuScreen extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             _option(
+              context,
+              icon: Icons.phone_iphone_rounded,
+              title: 'Mi telefono',
+              subtitle: 'Agrega o cambia tu numero de celular.',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const ClientePerfilScreen()),
+              ),
+            ),
+            const SizedBox(height: 10),
+            _option(
+              context,
               icon: Icons.support_agent_rounded,
               title: 'Ayuda y soporte',
-              subtitle: 'Contacta al restaurante si tienes dudas con tu pedido.',
+              subtitle:
+                  'Contacta al restaurante si tienes dudas con tu pedido.',
               onTap: () => _showComingSoon(context, 'Ayuda y soporte'),
             ),
             const SizedBox(height: 10),
             _option(
+              context,
               icon: Icons.logout_rounded,
               title: 'Cerrar sesión',
               subtitle: 'Salir de tu cuenta sin borrar el carrito.',
@@ -328,6 +470,723 @@ class TuScreen extends StatelessWidget {
   }
 }
 
+class ClientePerfilScreen extends StatefulWidget {
+  const ClientePerfilScreen({super.key});
+
+  @override
+  State<ClientePerfilScreen> createState() => _ClientePerfilScreenState();
+}
+
+class _ClientePerfilScreenState extends State<ClientePerfilScreen> {
+  static const Color negro = Color(0xFF050505);
+  static const Color amarillo = Color(0xFFFFC928);
+
+  final TextEditingController _telefonoController = TextEditingController();
+  bool _loading = true;
+  bool _saving = false;
+
+  String _text(dynamic value, [String fallback = '']) {
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? fallback : text;
+  }
+
+  String _phoneDigits(String value) {
+    final digits = value.replaceAll(RegExp(r'\D'), '');
+    if (digits.length <= 9) return digits;
+    return digits.substring(0, 9);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  @override
+  void dispose() {
+    _telefonoController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadProfile() async {
+    final user = AuthService().currentUser;
+    if (user == null) {
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
+
+    final doc = await FirebaseFirestore.instance
+        .collection('usuarios')
+        .doc(user.uid)
+        .get();
+    final data = doc.data() ?? const <String, dynamic>{};
+    _telefonoController.text = _phoneDigits(
+      _text(data['telefono'], _text(data['celular'])),
+    );
+
+    if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _saveProfile() async {
+    final user = AuthService().currentUser;
+    if (user == null) return;
+
+    final telefono = _phoneDigits(_telefonoController.text);
+    if (telefono.isNotEmpty && telefono.length != 9) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('El numero de celular debe tener 9 digitos.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _saving = true);
+    try {
+      await FirebaseFirestore.instance
+          .collection('usuarios')
+          .doc(user.uid)
+          .set({
+            'telefono': telefono,
+            'celular': telefono,
+            'email': user.email ?? '',
+            'actualizadoEn': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Telefono actualizado.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('No se pudo guardar el telefono: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Mi telefono')),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: colors.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: colors.outlineVariant),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Celular de contacto',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'El restaurante y el motorizado lo veran cuando hagas un pedido.',
+                        style: TextStyle(
+                          color: colors.onSurface.withOpacity(0.64),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _telefonoController,
+                        keyboardType: TextInputType.number,
+                        maxLength: 9,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(9),
+                        ],
+                        decoration: const InputDecoration(
+                          labelText: 'Numero de celular',
+                          prefixIcon: Icon(Icons.phone_iphone_rounded),
+                          helperText: 'Maximo 9 digitos',
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton.icon(
+                          onPressed: _saving ? null : _saveProfile,
+                          icon: _saving
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.save_rounded),
+                          label: const Text('Guardar telefono'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: amarillo,
+                            foregroundColor: negro,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+}
+
+class _CouponNotice {
+  final String title;
+  final String message;
+  final IconData icon;
+
+  const _CouponNotice({
+    required this.title,
+    required this.message,
+    required this.icon,
+  });
+}
+
+enum _RepeatOrderAction { add, replace }
+
+double _orderItemNumber(dynamic value) {
+  if (value is num) return value.toDouble();
+  return double.tryParse(value?.toString() ?? '') ?? 0.0;
+}
+
+int _orderItemQuantity(Map<String, dynamic> item) {
+  final value = item['cantidad'] ?? item['qty'] ?? item['quantity'];
+  if (value is int) return value < 1 ? 1 : value;
+  if (value is num) return value.round() < 1 ? 1 : value.round();
+  final parsed = int.tryParse(value?.toString() ?? '');
+  return parsed == null || parsed < 1 ? 1 : parsed;
+}
+
+double _orderItemUnitPrice(Map<String, dynamic> item, int quantity) {
+  final direct = _orderItemNumber(item['precioUnitario'] ?? item['precio']);
+  if (direct > 0) return direct;
+
+  final subtotal = _orderItemNumber(item['subtotal']);
+  if (subtotal > 0 && quantity > 0) return subtotal / quantity;
+
+  return 0.0;
+}
+
+String _orderItemText(Map<String, dynamic> item, List<String> keys) {
+  for (final key in keys) {
+    final text = item[key]?.toString().trim() ?? '';
+    if (text.isNotEmpty) return text;
+  }
+  return '';
+}
+
+String _orderItemProductId(Map<String, dynamic> item) {
+  final direct = _orderItemText(item, ['productId', 'productoId', 'id']);
+  if (direct.isNotEmpty) return direct;
+
+  final lineId = item['lineId']?.toString() ?? '';
+  if (lineId.contains('|')) return lineId.split('|').first;
+
+  return _orderItemText(item, ['nombre', 'producto', 'name']);
+}
+
+Future<void> _repeatOrderItems(
+  BuildContext context,
+  List<Map<String, dynamic>> items,
+) async {
+  if (items.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Este pedido no tiene productos para repetir.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    return;
+  }
+
+  final cart = CartController.instance;
+  var action = _RepeatOrderAction.add;
+
+  if (!cart.isEmpty) {
+    final selected = await showDialog<_RepeatOrderAction>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Volver a pedir'),
+        content: const Text(
+          'Ya tienes productos en el carrito. Puedes agregarlos o reemplazar el carrito actual.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, _RepeatOrderAction.add),
+            child: const Text('Agregar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, _RepeatOrderAction.replace),
+            child: const Text('Reemplazar'),
+          ),
+        ],
+      ),
+    );
+
+    if (selected == null) return;
+    action = selected;
+  }
+
+  if (action == _RepeatOrderAction.replace) {
+    cart.clear();
+  }
+
+  var addedQuantity = 0;
+  for (final item in items) {
+    final quantity = _orderItemQuantity(item);
+    final price = _orderItemUnitPrice(item, quantity);
+    final product = {
+      'id': _orderItemProductId(item),
+      'nombre': _orderItemText(item, [
+        'nombre',
+        'producto',
+        'productoNombre',
+        'nombreProducto',
+        'name',
+      ]),
+      'categoria': _orderItemText(item, ['categoria', 'category']),
+      'descripcion': _orderItemText(item, ['descripcion', 'description']),
+      'imagenUrl': _orderItemText(item, ['imagenUrl', 'imageUrl', 'imagen']),
+      'precio': price,
+    };
+    final variant = _orderItemText(item, ['variante', 'tamano', 'size']);
+
+    for (var index = 0; index < quantity; index++) {
+      cart.addProduct(
+        product,
+        variante: variant.isEmpty ? 'Normal' : variant,
+        precio: price,
+      );
+      addedQuantity++;
+    }
+  }
+
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text('$addedQuantity producto(s) agregado(s) al carrito.'),
+      behavior: SnackBarBehavior.floating,
+    ),
+  );
+}
+
+class ClienteNotificacionesScreen extends StatelessWidget {
+  const ClienteNotificacionesScreen({super.key});
+
+  static const Color negro = Color(0xFF050505);
+  static const Color amarillo = Color(0xFFFFC928);
+
+  DateTime _createdAt(Map<String, dynamic> data) {
+    final value =
+        data['estadoActualizadoEn'] ?? data['creadoEn'] ?? data['fecha'];
+    if (value is Timestamp) return value.toDate();
+    return DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
+  String _fechaTexto(DateTime date) {
+    if (date.millisecondsSinceEpoch == 0) return 'Fecha pendiente';
+    final dia = date.day.toString().padLeft(2, '0');
+    final mes = date.month.toString().padLeft(2, '0');
+    final hora = date.hour.toString().padLeft(2, '0');
+    final minuto = date.minute.toString().padLeft(2, '0');
+    return '$dia/$mes/${date.year} - $hora:$minuto';
+  }
+
+  String _notificationText(Map<String, dynamic> data) {
+    final direct = data['notificacionCliente']?.toString().trim() ?? '';
+    if (direct.isNotEmpty) return direct;
+
+    final cancelReason = data['motivoCancelacion']?.toString().trim() ?? '';
+    if (cancelReason.isNotEmpty) {
+      return 'Tu pedido fue cancelado. Motivo: $cancelReason';
+    }
+
+    final message = data['mensajeCliente']?.toString().trim() ?? '';
+    if (message.isNotEmpty) return message;
+
+    return '';
+  }
+
+  String _title(Map<String, dynamic> data) {
+    final type = data['notificacionTipo']?.toString() ?? '';
+    final estado = data['estado']?.toString() ?? '';
+
+    if (type == 'pedido_cancelado' || estado == 'cancelado') {
+      return 'Pedido cancelado';
+    }
+    if (type == 'pedido_editado') return 'Pedido editado';
+    if (type == 'pedido_listo') return 'Pedido listo';
+    if (type == 'pedido_aceptado') return 'Pedido aceptado';
+    return 'Aviso del restaurante';
+  }
+
+  Color _color(Map<String, dynamic> data) {
+    final type = data['notificacionTipo']?.toString() ?? '';
+    final estado = data['estado']?.toString() ?? '';
+
+    if (type == 'pedido_cancelado' || estado == 'cancelado') return Colors.red;
+    if (type == 'pedido_listo') return Colors.green.shade700;
+    if (type == 'pedido_editado') return Colors.blue.shade700;
+    return amarillo;
+  }
+
+  Future<void> _markRead(DocumentReference<Map<String, dynamic>> ref) async {
+    await ref.set({
+      'notificacionLeida': true,
+      'notificacionLeidaEn': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Widget _notificationCard(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final colors = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final data = doc.data();
+    final text = _notificationText(data);
+    final unread = data['notificacionLeida'] != true;
+    final color = _color(data);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: unread
+              ? color.withOpacity(0.55)
+              : dark
+              ? Colors.white.withOpacity(0.10)
+              : Colors.black.withOpacity(0.06),
+          width: unread ? 1.4 : 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                unread
+                    ? Icons.notifications_active_rounded
+                    : Icons.notifications_none_rounded,
+                color: color,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _title(data),
+                  style: TextStyle(
+                    color: colors.onSurface,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              if (unread)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: const Text(
+                    'Nuevo',
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Pedido #${doc.id.substring(0, doc.id.length >= 6 ? 6 : doc.id.length).toUpperCase()} - ${_fechaTexto(_createdAt(data))}',
+            style: TextStyle(
+              color: colors.onSurface.withOpacity(0.62),
+              fontSize: 12.5,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(text, style: TextStyle(color: colors.onSurface, height: 1.35)),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () {
+                  _markRead(doc.reference);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PedidoDetalleScreen(pedidoId: doc.id),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.receipt_long_rounded),
+                label: const Text('Ver pedido'),
+              ),
+              if (unread)
+                TextButton.icon(
+                  onPressed: () => _markRead(doc.reference),
+                  icon: const Icon(Icons.done_rounded),
+                  label: const Text('Marcar leida'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<List<_CouponNotice>> _couponNotices(User user) async {
+    final notices = <_CouponNotice>[];
+    try {
+      final purchase = await CouponService.purchaseStatus(user);
+      if (purchase.canClaim) {
+        notices.add(
+          _CouponNotice(
+            title: 'Cupon por reclamar',
+            message:
+                'Ya tienes ${purchase.requiredPurchases} compras entregadas. Reclama tu ${purchase.discountPercentage}% de descuento para el proximo pedido.',
+            icon: Icons.local_activity_rounded,
+          ),
+        );
+      }
+
+      final shake = await CouponService.shakeStatus(user);
+      if (shake.canClaim) {
+        notices.add(
+          _CouponNotice(
+            title: 'Cupon semanal disponible',
+            message:
+                'Puedes reclamar ${shake.discountPercentage}% de descuento agitando tu celular durante ${shake.shakeSeconds} segundos.',
+            icon: Icons.vibration_rounded,
+          ),
+        );
+      }
+    } catch (_) {
+      return notices;
+    }
+    return notices;
+  }
+
+  Widget _couponNoticeCard(BuildContext context, _CouponNotice notice) {
+    final colors = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: dark ? const Color(0xFF2B2616) : const Color(0xFFFFFAE5),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: amarillo.withOpacity(0.65)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(notice.icon, color: dark ? amarillo : negro),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  notice.title,
+                  style: TextStyle(
+                    color: colors.onSurface,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: amarillo.withOpacity(0.22),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: const Text(
+                  'Cupon',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            notice.message,
+            style: TextStyle(color: colors.onSurface, height: 1.35),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CuponesScreen()),
+            ),
+            icon: const Icon(Icons.local_activity_rounded),
+            label: const Text('Ir a cupones'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = AuthService().currentUser;
+
+    if (user == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Notificaciones')),
+        body: const Center(child: Text('Inicia sesion para ver tus avisos.')),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Notificaciones')),
+      body: FutureBuilder<List<_CouponNotice>>(
+        future: _couponNotices(user),
+        builder: (context, couponSnapshot) {
+          final couponNotices = couponSnapshot.data ?? const <_CouponNotice>[];
+
+          return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance
+                .collection('pedidos_restaurante')
+                .where('userId', isEqualTo: user.uid)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      'No se pudieron cargar las notificaciones:\n${snapshot.error}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.red,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              final docs =
+                  List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+                        snapshot.data?.docs ??
+                            <QueryDocumentSnapshot<Map<String, dynamic>>>[],
+                      )
+                      .where((doc) => _notificationText(doc.data()).isNotEmpty)
+                      .toList();
+
+              docs.sort(
+                (a, b) => _createdAt(b.data()).compareTo(_createdAt(a.data())),
+              );
+
+              if (docs.isEmpty && couponNotices.isEmpty) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 88,
+                          height: 88,
+                          decoration: const BoxDecoration(
+                            color: amarillo,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.notifications_none_rounded,
+                            size: 44,
+                            color: negro,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Sin notificaciones',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Cuando el restaurante edite o cancele un pedido, veras el aviso aqui.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurface.withOpacity(0.62),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+
+              final itemCount = couponNotices.length + docs.length;
+              return ListView.separated(
+                padding: const EdgeInsets.all(14),
+                itemCount: itemCount,
+                separatorBuilder: (context, index) =>
+                    const SizedBox(height: 12),
+                itemBuilder: (context, index) {
+                  if (index < couponNotices.length) {
+                    return _couponNoticeCard(context, couponNotices[index]);
+                  }
+                  return _notificationCard(
+                    context,
+                    docs[index - couponNotices.length],
+                  );
+                },
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
 class TusPedidosScreen extends StatelessWidget {
   const TusPedidosScreen({super.key});
 
@@ -335,8 +1194,15 @@ class TusPedidosScreen extends StatelessWidget {
   static const Color amarillo = Color(0xFFFFC928);
 
   String _money(dynamic value) {
-    final number = value is num ? value.toDouble() : double.tryParse(value?.toString() ?? '') ?? 0.0;
+    final number = value is num
+        ? value.toDouble()
+        : double.tryParse(value?.toString() ?? '') ?? 0.0;
     return 'S/ ${number.toStringAsFixed(2)}';
+  }
+
+  double _number(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0.0;
   }
 
   String _estadoNormalizado(dynamic value) {
@@ -347,7 +1213,11 @@ class TusPedidosScreen extends StatelessWidget {
     if (estado == 'en preparación') return 'en_preparacion';
     if (estado == 'en_preparacion') return 'en_preparacion';
     if (estado == 'listo') return 'listo';
-    if (estado == 'en_camino' || estado == 'en_camino_local' || estado == 'camino' || estado == 'en camino') return 'en_camino';
+    if (estado == 'en_camino' ||
+        estado == 'en_camino_local' ||
+        estado == 'camino' ||
+        estado == 'en camino')
+      return 'en_camino';
     if (estado == 'entregado') return 'entregado';
     if (estado == 'cancelado') return 'cancelado';
     if (estado == 'cancelada') return 'cancelado';
@@ -419,24 +1289,100 @@ class TusPedidosScreen extends StatelessWidget {
     return '$dia/$mes/${date.year} · $hora:$minuto';
   }
 
-  Widget _statusStepper(String estado) {
+  String _notificationText(Map<String, dynamic> data) {
+    final direct = data['notificacionCliente']?.toString().trim() ?? '';
+    if (direct.isNotEmpty) return direct;
+
+    final cancelReason = data['motivoCancelacion']?.toString().trim() ?? '';
+    if (cancelReason.isNotEmpty) {
+      return 'Tu pedido fue cancelado. Motivo: $cancelReason';
+    }
+
+    final message = data['mensajeCliente']?.toString().trim() ?? '';
+    if (message.isNotEmpty) return message;
+
+    return '';
+  }
+
+  Widget _notificationBanner(BuildContext context, Map<String, dynamic> data) {
+    final text = _notificationText(data);
+    if (text.isEmpty) return const SizedBox.shrink();
+
+    final colors = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final unread = data['notificacionLeida'] != true;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: unread
+            ? dark
+                  ? const Color(0xFF2B2616)
+                  : const Color(0xFFFFF4BF)
+            : colors.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: unread
+              ? amarillo
+              : dark
+              ? Colors.white.withOpacity(0.10)
+              : Colors.black.withOpacity(0.06),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            unread
+                ? Icons.notifications_active_rounded
+                : Icons.notifications_none_rounded,
+            color: unread && dark ? amarillo : colors.onSurface,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                color: colors.onSurface,
+                fontWeight: FontWeight.w800,
+                height: 1.25,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statusStepper(BuildContext context, String estado) {
     if (estado == 'cancelado') {
+      final colors = Theme.of(context).colorScheme;
+      final dark = Theme.of(context).brightness == Brightness.dark;
+
       return Container(
         width: double.infinity,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.red.shade50,
+          color: dark ? const Color(0xFF3A1717) : Colors.red.shade50,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.red.shade200),
+          border: Border.all(
+            color: dark ? Colors.red.shade300 : Colors.red.shade200,
+          ),
         ),
         child: Row(
           children: [
-            Icon(Icons.cancel_rounded, color: Colors.red.shade700),
+            Icon(
+              Icons.cancel_rounded,
+              color: dark ? Colors.red.shade200 : Colors.red.shade700,
+            ),
             const SizedBox(width: 8),
-            const Expanded(
+            Expanded(
               child: Text(
                 'Este pedido fue cancelado.',
-                style: TextStyle(fontWeight: FontWeight.w800),
+                style: TextStyle(
+                  color: colors.onSurface,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
           ],
@@ -446,7 +1392,15 @@ class TusPedidosScreen extends StatelessWidget {
 
     final current = _estadoIndex(estado);
     final colorActual = _estadoColor(estado);
-    final labels = ['Pendiente', 'En\npreparación', 'Listo', 'En\ncamino', 'Entregado'];
+    final colors = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final labels = [
+      'Pendiente',
+      'En\npreparación',
+      'Listo',
+      'En\ncamino',
+      'Entregado',
+    ];
 
     return Column(
       children: [
@@ -461,7 +1415,11 @@ class TusPedidosScreen extends StatelessWidget {
                     height: 3,
                     margin: const EdgeInsets.symmetric(horizontal: 4),
                     decoration: BoxDecoration(
-                      color: leftIndex < current ? colorActual : Colors.grey.shade300,
+                      color: leftIndex < current
+                          ? colorActual
+                          : dark
+                          ? colors.onSurface.withOpacity(0.18)
+                          : Colors.grey.shade300,
                       borderRadius: BorderRadius.circular(99),
                     ),
                   ),
@@ -477,13 +1435,19 @@ class TusPedidosScreen extends StatelessWidget {
                     width: 28,
                     height: 28,
                     decoration: BoxDecoration(
-                      color: active ? colorActual : Colors.grey.shade300,
+                      color: active
+                          ? colorActual
+                          : dark
+                          ? colors.onSurface.withOpacity(0.18)
+                          : Colors.grey.shade300,
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
                       index >= 2 ? Icons.check_rounded : Icons.circle,
                       size: index >= 2 ? 18 : 9,
-                      color: active ? Colors.white : Colors.grey.shade600,
+                      color: active
+                          ? Colors.white
+                          : colors.onSurface.withOpacity(0.56),
                     ),
                   ),
                 ),
@@ -503,7 +1467,9 @@ class TusPedidosScreen extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 10.5,
                   height: 1.05,
-                  color: active ? negro : Colors.black45,
+                  color: active
+                      ? colors.onSurface
+                      : colors.onSurface.withOpacity(0.56),
                   fontWeight: active ? FontWeight.w900 : FontWeight.w600,
                 ),
               ),
@@ -539,10 +1505,14 @@ class TusPedidosScreen extends StatelessWidget {
     );
   }
 
-  Widget _pedidoCard(BuildContext context, QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+  Widget _pedidoCard(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
     final data = doc.data();
     final estado = _estadoNormalizado(data['estado']);
-    final rawItems = (data['items'] as List?) ?? (data['productos'] as List?) ?? const [];
+    final rawItems =
+        (data['items'] as List?) ?? (data['productos'] as List?) ?? const [];
     final items = rawItems
         .whereType<Map>()
         .map((item) => Map<String, dynamic>.from(item))
@@ -550,9 +1520,11 @@ class TusPedidosScreen extends StatelessWidget {
     final fecha = _createdAt(data);
     final distanciaTexto = data['distanciaTexto']?.toString() ?? '';
     final duracionTexto = data['duracionTexto']?.toString() ?? '';
+    final descuento = _number(data['descuento']);
+    final colors = Theme.of(context).colorScheme;
 
     return Material(
-      color: Colors.white,
+      color: colors.surface,
       borderRadius: BorderRadius.circular(22),
       child: InkWell(
         borderRadius: BorderRadius.circular(22),
@@ -566,7 +1538,7 @@ class TusPedidosScreen extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: Colors.black.withOpacity(0.06)),
+            border: Border.all(color: colors.outlineVariant),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withOpacity(0.04),
@@ -583,11 +1555,17 @@ class TusPedidosScreen extends StatelessWidget {
                   Expanded(
                     child: Text(
                       'Pedido #${doc.id.substring(0, doc.id.length >= 6 ? 6 : doc.id.length).toUpperCase()}',
-                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 16,
+                      ),
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: _estadoColor(estado).withOpacity(0.16),
                       borderRadius: BorderRadius.circular(999),
@@ -595,7 +1573,10 @@ class TusPedidosScreen extends StatelessWidget {
                     ),
                     child: Text(
                       _estadoTexto(estado),
-                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 12,
+                      ),
                     ),
                   ),
                 ],
@@ -603,15 +1584,22 @@ class TusPedidosScreen extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 _fechaTexto(fecha),
-                style: const TextStyle(color: Colors.black54, fontSize: 12.5),
+                style: TextStyle(
+                  color: colors.onSurface.withOpacity(0.64),
+                  fontSize: 12.5,
+                ),
               ),
               const SizedBox(height: 14),
-              _statusStepper(estado),
+              _statusStepper(context, estado),
+              if (_notificationText(data).isNotEmpty) ...[
+                const SizedBox(height: 12),
+                _notificationBanner(context, data),
+              ],
               const Divider(height: 24),
               if (items.isEmpty)
-                const Text(
+                Text(
                   'Sin detalle de productos.',
-                  style: TextStyle(color: Colors.black54),
+                  style: TextStyle(color: colors.onSurface.withOpacity(0.64)),
                 )
               else
                 ...items.take(3).map((item) {
@@ -642,29 +1630,76 @@ class TusPedidosScreen extends StatelessWidget {
               if (items.length > 3)
                 Text(
                   '+ ${items.length - 3} producto(s) más',
-                  style: const TextStyle(color: Colors.black54, fontSize: 12.5),
+                  style: TextStyle(
+                    color: colors.onSurface.withOpacity(0.64),
+                    fontSize: 12.5,
+                  ),
                 ),
               const SizedBox(height: 10),
               if (distanciaTexto.isNotEmpty || duracionTexto.isNotEmpty)
                 Row(
                   children: [
-                    const Icon(Icons.delivery_dining_rounded, size: 18, color: negro),
+                    Icon(
+                      Icons.delivery_dining_rounded,
+                      size: 18,
+                      color: colors.onSurface,
+                    ),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        [distanciaTexto, duracionTexto].where((e) => e.isNotEmpty).join(' · '),
-                        style: const TextStyle(color: Colors.black54, fontSize: 12.5),
+                        [
+                          distanciaTexto,
+                          duracionTexto,
+                        ].where((e) => e.isNotEmpty).join(' · '),
+                        style: TextStyle(
+                          color: colors.onSurface.withOpacity(0.64),
+                          fontSize: 12.5,
+                        ),
                       ),
                     ),
                   ],
                 ),
               const SizedBox(height: 12),
+              if (descuento > 0) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Descuento aplicado',
+                        style: TextStyle(
+                          color: colors.onSurface.withOpacity(0.64),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '- ${_money(descuento)}',
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ],
+              if (estado == 'entregado' && items.isNotEmpty) ...[
+                SizedBox(
+                  width: double.infinity,
+                  height: 44,
+                  child: FilledButton.icon(
+                    onPressed: () => _repeatOrderItems(context, items),
+                    icon: const Icon(Icons.replay_rounded),
+                    label: const Text('Volver a pedir'),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
               Row(
                 children: [
                   Expanded(
                     child: Text(
                       'Delivery: ${_money(data['delivery'])}',
-                      style: const TextStyle(color: Colors.black54),
+                      style: TextStyle(
+                        color: colors.onSurface.withOpacity(0.64),
+                      ),
                     ),
                   ),
                   _totalChip(data['total']),
@@ -730,7 +1765,10 @@ class TusPedidosScreen extends StatelessWidget {
                 child: Text(
                   'No se pudieron cargar tus pedidos:\n${snapshot.error}',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w700),
+                  style: const TextStyle(
+                    color: Colors.red,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             );
@@ -741,9 +1779,12 @@ class TusPedidosScreen extends StatelessWidget {
           }
 
           final docs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
-            snapshot.data?.docs ?? <QueryDocumentSnapshot<Map<String, dynamic>>>[],
+            snapshot.data?.docs ??
+                <QueryDocumentSnapshot<Map<String, dynamic>>>[],
           );
-          docs.sort((a, b) => _createdAt(b.data()).compareTo(_createdAt(a.data())));
+          docs.sort(
+            (a, b) => _createdAt(b.data()).compareTo(_createdAt(a.data())),
+          );
 
           if (docs.isEmpty) {
             return Center(
@@ -755,13 +1796,23 @@ class TusPedidosScreen extends StatelessWidget {
                     Container(
                       width: 88,
                       height: 88,
-                      decoration: const BoxDecoration(color: amarillo, shape: BoxShape.circle),
-                      child: const Icon(Icons.receipt_long_outlined, size: 44, color: negro),
+                      decoration: const BoxDecoration(
+                        color: amarillo,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.receipt_long_outlined,
+                        size: 44,
+                        color: negro,
+                      ),
                     ),
                     const SizedBox(height: 16),
                     const Text(
                       'Aún no tienes pedidos',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                     const SizedBox(height: 6),
                     const Text(
@@ -796,8 +1847,15 @@ class PedidoDetalleScreen extends StatelessWidget {
   static const Color amarillo = Color(0xFFFFC928);
 
   String _money(dynamic value) {
-    final number = value is num ? value.toDouble() : double.tryParse(value?.toString() ?? '') ?? 0.0;
+    final number = value is num
+        ? value.toDouble()
+        : double.tryParse(value?.toString() ?? '') ?? 0.0;
     return 'S/. ${number.toStringAsFixed(2)}';
+  }
+
+  double _number(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0.0;
   }
 
   String _estadoNormalizado(dynamic value) {
@@ -807,7 +1865,11 @@ class PedidoDetalleScreen extends StatelessWidget {
     if (estado == 'en preparación') return 'en_preparacion';
     if (estado == 'en_preparacion') return 'en_preparacion';
     if (estado == 'listo') return 'listo';
-    if (estado == 'en_camino' || estado == 'en_camino_local' || estado == 'camino' || estado == 'en camino') return 'en_camino';
+    if (estado == 'en_camino' ||
+        estado == 'en_camino_local' ||
+        estado == 'camino' ||
+        estado == 'en camino')
+      return 'en_camino';
     if (estado == 'entregado') return 'entregado';
     if (estado == 'cancelado' || estado == 'cancelada') return 'cancelado';
     return 'pendiente';
@@ -911,14 +1973,21 @@ class PedidoDetalleScreen extends StatelessWidget {
     return points;
   }
 
-  Widget _statusBox(String estado) {
+  Widget _statusBox(BuildContext context, String estado) {
+    final colors = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final statusColor = _estadoColor(estado);
+    final backgroundColor = dark
+        ? statusColor.withOpacity(0.22)
+        : statusColor.withOpacity(0.16);
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: _estadoColor(estado).withOpacity(0.16),
+        color: backgroundColor,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: _estadoColor(estado)),
+        border: Border.all(color: statusColor),
       ),
       child: Row(
         children: [
@@ -926,15 +1995,19 @@ class PedidoDetalleScreen extends StatelessWidget {
             estado == 'cancelado'
                 ? Icons.cancel_rounded
                 : estado == 'entregado'
-                    ? Icons.done_all_rounded
-                    : estado == 'en_camino'
-                        ? Icons.delivery_dining_rounded
-                        : estado == 'listo'
-                            ? Icons.check_circle_rounded
-                            : estado == 'en_preparacion'
-                                ? Icons.restaurant_rounded
-                                : Icons.hourglass_bottom_rounded,
-            color: estado == 'pendiente' ? negro : _estadoColor(estado),
+                ? Icons.done_all_rounded
+                : estado == 'en_camino'
+                ? Icons.delivery_dining_rounded
+                : estado == 'listo'
+                ? Icons.check_circle_rounded
+                : estado == 'en_preparacion'
+                ? Icons.restaurant_rounded
+                : Icons.hourglass_bottom_rounded,
+            color: estado == 'pendiente' && !dark
+                ? negro
+                : dark
+                ? colors.onSurface
+                : statusColor,
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -943,24 +2016,96 @@ class PedidoDetalleScreen extends StatelessWidget {
               children: [
                 Text(
                   _estadoTexto(estado),
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                  style: TextStyle(
+                    color: colors.onSurface,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   estado == 'pendiente'
                       ? 'Tu pedido fue recibido. Puedes cancelarlo mientras siga pendiente.'
                       : estado == 'en_preparacion'
-                          ? 'El restaurante ya empezó a preparar tu pedido.'
-                          : estado == 'listo'
-                              ? 'Tu pedido está listo para entrega o recojo.'
-                              : estado == 'en_camino'
-                                  ? 'El repartidor está llevando tu pedido hacia la ubicación indicada.'
-                                  : estado == 'entregado'
-                                      ? 'Tu pedido fue entregado. Ya puedes dejar una reseña.'
-                                      : 'El pedido ya no continuará.',
-                  style: const TextStyle(color: Colors.black54, fontSize: 12.5),
+                      ? 'El restaurante ya empezó a preparar tu pedido.'
+                      : estado == 'listo'
+                      ? 'Tu pedido está listo para entrega o recojo.'
+                      : estado == 'en_camino'
+                      ? 'El repartidor está llevando tu pedido hacia la ubicación indicada.'
+                      : estado == 'entregado'
+                      ? 'Tu pedido fue entregado. Ya puedes dejar una reseña.'
+                      : 'El pedido ya no continuará.',
+                  style: TextStyle(
+                    color: colors.onSurface.withOpacity(0.68),
+                    fontSize: 12.5,
+                  ),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _notificationText(Map<String, dynamic> data) {
+    final direct = data['notificacionCliente']?.toString().trim() ?? '';
+    if (direct.isNotEmpty) return direct;
+
+    final cancelReason = data['motivoCancelacion']?.toString().trim() ?? '';
+    if (cancelReason.isNotEmpty) {
+      return 'Tu pedido fue cancelado. Motivo: $cancelReason';
+    }
+
+    final message = data['mensajeCliente']?.toString().trim() ?? '';
+    if (message.isNotEmpty) return message;
+
+    return '';
+  }
+
+  Widget _notificationBox(BuildContext context, Map<String, dynamic> data) {
+    final text = _notificationText(data);
+    if (text.isEmpty) return const SizedBox.shrink();
+
+    final colors = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final unread = data['notificacionLeida'] != true;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: unread
+            ? dark
+                  ? const Color(0xFF2B2616)
+                  : const Color(0xFFFFF4BF)
+            : colors.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: unread
+              ? amarillo
+              : dark
+              ? Colors.white.withOpacity(0.10)
+              : Colors.black.withOpacity(0.06),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            unread
+                ? Icons.notifications_active_rounded
+                : Icons.notifications_none_rounded,
+            color: unread && dark ? amarillo : colors.onSurface,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                color: colors.onSurface,
+                fontWeight: FontWeight.w800,
+                height: 1.3,
+              ),
             ),
           ),
         ],
@@ -984,16 +2129,26 @@ class PedidoDetalleScreen extends StatelessWidget {
     final restaurante = LatLng(restLat, restLng);
     final cliente = LatLng(clienteLat, clienteLng);
     final encoded = data['rutaPolyline']?.toString() ?? '';
-    final decodedPoints = encoded.isNotEmpty ? _decodePolyline(encoded) : <LatLng>[];
-    final points = decodedPoints.isNotEmpty ? decodedPoints : <LatLng>[restaurante, cliente];
+    final decodedPoints = encoded.isNotEmpty
+        ? _decodePolyline(encoded)
+        : <LatLng>[];
+    final points = decodedPoints.isNotEmpty
+        ? decodedPoints
+        : <LatLng>[restaurante, cliente];
     final center = LatLng(
       (restaurante.latitude + cliente.latitude) / 2,
       (restaurante.longitude + cliente.longitude) / 2,
     );
 
-    final repartidorLat = data['repartidorLat'] is num ? (data['repartidorLat'] as num).toDouble() : null;
-    final repartidorLng = data['repartidorLng'] is num ? (data['repartidorLng'] as num).toDouble() : null;
-    final repartidor = repartidorLat != null && repartidorLng != null ? LatLng(repartidorLat, repartidorLng) : null;
+    final repartidorLat = data['repartidorLat'] is num
+        ? (data['repartidorLat'] as num).toDouble()
+        : null;
+    final repartidorLng = data['repartidorLng'] is num
+        ? (data['repartidorLng'] as num).toDouble()
+        : null;
+    final repartidor = repartidorLat != null && repartidorLng != null
+        ? LatLng(repartidorLat, repartidorLng)
+        : null;
 
     final markers = <Marker>{
       Marker(
@@ -1023,7 +2178,9 @@ class PedidoDetalleScreen extends StatelessWidget {
           rotation: rumbo,
           anchor: const Offset(0.5, 0.5),
           infoWindow: const InfoWindow(title: 'Repartidor en movimiento'),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueAzure,
+          ),
         ),
       );
     }
@@ -1066,12 +2223,17 @@ class PedidoDetalleScreen extends StatelessWidget {
     );
   }
 
-  Widget _repartidorCard(Map<String, dynamic> data) {
+  Widget _repartidorCard(BuildContext context, Map<String, dynamic> data) {
+    final colors = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
     final asignado = data['repartidorAsignado'] == true;
     final nombre = data['repartidorNombre']?.toString().trim();
-    final movimiento = data['repartidorMovimiento']?.toString().trim() ?? 'sin_asignar';
+    final movimiento =
+        data['repartidorMovimiento']?.toString().trim() ?? 'sin_asignar';
     final velocidadValue = data['repartidorVelocidadKmh'];
-    final velocidad = velocidadValue is num ? velocidadValue.toDouble() : double.tryParse(velocidadValue?.toString() ?? '') ?? 0.0;
+    final velocidad = velocidadValue is num
+        ? velocidadValue.toDouble()
+        : double.tryParse(velocidadValue?.toString() ?? '') ?? 0.0;
     final lat = data['repartidorLat'];
     final lng = data['repartidorLng'];
     final tieneUbicacion = lat is num && lng is num;
@@ -1095,16 +2257,32 @@ class PedidoDetalleScreen extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: asignado ? Colors.blue.shade50 : Colors.grey.shade100,
+        color: asignado
+            ? dark
+                  ? const Color(0xFF11253A)
+                  : Colors.blue.shade50
+            : colors.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: asignado ? Colors.blue.shade200 : Colors.black.withOpacity(0.06)),
+        border: Border.all(
+          color: asignado
+              ? dark
+                    ? Colors.blue.shade300
+                    : Colors.blue.shade200
+              : colors.outlineVariant,
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
-            asignado ? Icons.delivery_dining_rounded : Icons.person_search_rounded,
-            color: asignado ? Colors.blue.shade700 : Colors.black45,
+            asignado
+                ? Icons.delivery_dining_rounded
+                : Icons.person_search_rounded,
+            color: asignado
+                ? dark
+                      ? Colors.blue.shade200
+                      : Colors.blue.shade700
+                : colors.onSurface.withOpacity(0.62),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -1112,27 +2290,50 @@ class PedidoDetalleScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  asignado ? 'Repartidor asignado' : 'Repartidor aún no asignado',
-                  style: const TextStyle(fontWeight: FontWeight.w900),
+                  asignado
+                      ? 'Repartidor asignado'
+                      : 'Repartidor aún no asignado',
+                  style: TextStyle(
+                    color: colors.onSurface,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 if (asignado && nombre != null && nombre.isNotEmpty)
-                  Text(nombre, style: const TextStyle(fontWeight: FontWeight.w700)),
+                  Text(
+                    nombre,
+                    style: TextStyle(
+                      color: colors.onSurface,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 if (asignado) ...[
                   const SizedBox(height: 4),
                   Text(
                     'Velocidad: ${velocidad.toStringAsFixed(1)} km/h · $movimientoTexto',
-                    style: const TextStyle(color: Colors.black54, fontWeight: FontWeight.w700, fontSize: 12.5),
+                    style: TextStyle(
+                      color: colors.onSurface.withOpacity(0.68),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12.5,
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    tieneUbicacion ? 'Ubicación del repartidor disponible en el mapa.' : 'Ubicación del repartidor pendiente.',
-                    style: const TextStyle(color: Colors.black45, fontSize: 12),
+                    tieneUbicacion
+                        ? 'Ubicación del repartidor disponible en el mapa.'
+                        : 'Ubicación del repartidor pendiente.',
+                    style: TextStyle(
+                      color: colors.onSurface.withOpacity(0.58),
+                      fontSize: 12,
+                    ),
                   ),
                 ] else
-                  const Text(
+                  Text(
                     'Cuando el restaurante asigne un repartidor, aquí aparecerá su velocidad, movimiento y ubicación.',
-                    style: TextStyle(color: Colors.black54, fontSize: 12.5),
+                    style: TextStyle(
+                      color: colors.onSurface.withOpacity(0.68),
+                      fontSize: 12.5,
+                    ),
                   ),
               ],
             ),
@@ -1142,20 +2343,21 @@ class PedidoDetalleScreen extends StatelessWidget {
     );
   }
 
-  Widget _productoItem(Map<String, dynamic> item) {
+  Widget _productoItem(BuildContext context, Map<String, dynamic> item) {
     final imagenUrl = item['imagenUrl']?.toString() ?? '';
     final cantidad = item['cantidad'] ?? 1;
     final nombre = item['nombre']?.toString() ?? 'Producto';
     final variante = item['variante']?.toString() ?? 'Normal';
     final precioUnitario = item['precioUnitario'];
     final subtotal = item['subtotal'] ?? precioUnitario;
+    final colors = Theme.of(context).colorScheme;
 
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.black.withOpacity(0.06)),
+        border: Border.all(color: colors.outlineVariant),
       ),
       child: Row(
         children: [
@@ -1166,7 +2368,10 @@ class PedidoDetalleScreen extends StatelessWidget {
                     width: 58,
                     height: 58,
                     color: const Color(0xFFFFF4BF),
-                    child: const Icon(Icons.restaurant_menu_rounded, color: negro),
+                    child: const Icon(
+                      Icons.restaurant_menu_rounded,
+                      color: negro,
+                    ),
                   )
                 : Image.network(
                     imagenUrl,
@@ -1194,7 +2399,9 @@ class PedidoDetalleScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  variante == 'Normal' ? 'Precio unitario: ${_money(precioUnitario)}' : '$variante · ${_money(precioUnitario)} c/u',
+                  variante == 'Normal'
+                      ? 'Precio unitario: ${_money(precioUnitario)}'
+                      : '$variante · ${_money(precioUnitario)} c/u',
                   style: const TextStyle(color: Colors.black54, fontSize: 12.5),
                 ),
               ],
@@ -1210,14 +2417,21 @@ class PedidoDetalleScreen extends StatelessWidget {
     );
   }
 
-  Widget _totalRow(String label, dynamic value, {bool big = false}) {
+  Widget _totalRow(
+    BuildContext context,
+    String label,
+    dynamic value, {
+    bool big = false,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(
           label,
           style: TextStyle(
-            color: big ? negro : Colors.black54,
+            color: big ? colors.onSurface : colors.onSurface.withOpacity(0.64),
             fontWeight: big ? FontWeight.w900 : FontWeight.w700,
             fontSize: big ? 18 : 14,
           ),
@@ -1233,7 +2447,10 @@ class PedidoDetalleScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _cancelarPedido(BuildContext context, DocumentSnapshot<Map<String, dynamic>> doc) async {
+  Future<void> _cancelarPedido(
+    BuildContext context,
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
     final data = doc.data();
     final estado = _estadoNormalizado(data?['estado']);
     final user = AuthService().currentUser;
@@ -1243,7 +2460,9 @@ class PedidoDetalleScreen extends StatelessWidget {
     if (estado != 'pendiente') {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Solo se puede cancelar un pedido mientras está pendiente.'),
+          content: Text(
+            'Solo se puede cancelar un pedido mientras está pendiente.',
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -1254,7 +2473,9 @@ class PedidoDetalleScreen extends StatelessWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Cancelar pedido'),
-        content: const Text('¿Seguro que deseas cancelar este pedido? Esta acción cambiará su estado a cancelado.'),
+        content: const Text(
+          '¿Seguro que deseas cancelar este pedido? Esta acción cambiará su estado a cancelado.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -1322,7 +2543,10 @@ class PedidoDetalleScreen extends StatelessWidget {
                 child: Text(
                   'No se pudo cargar el pedido:\n${snapshot.error}',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w700),
+                  style: const TextStyle(
+                    color: Colors.red,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             );
@@ -1335,12 +2559,18 @@ class PedidoDetalleScreen extends StatelessWidget {
           final doc = snapshot.data;
           final data = doc?.data();
 
-          if (doc == null || data == null || !doc.exists || data['userId'] != user.uid) {
+          if (doc == null ||
+              data == null ||
+              !doc.exists ||
+              data['userId'] != user.uid) {
             return const Center(child: Text('Pedido no encontrado.'));
           }
 
           final estado = _estadoNormalizado(data['estado']);
-          final rawItems = (data['items'] as List?) ?? (data['productos'] as List?) ?? const [];
+          final rawItems =
+              (data['items'] as List?) ??
+              (data['productos'] as List?) ??
+              const [];
           final items = rawItems
               .whereType<Map>()
               .map((item) => Map<String, dynamic>.from(item))
@@ -1348,6 +2578,8 @@ class PedidoDetalleScreen extends StatelessWidget {
           final fecha = _createdAt(data);
           final distanciaTexto = data['distanciaTexto']?.toString() ?? '';
           final duracionTexto = data['duracionTexto']?.toString() ?? '';
+          final descuento = _number(data['descuento']);
+          final colors = Theme.of(context).colorScheme;
 
           return ListView(
             padding: const EdgeInsets.all(16),
@@ -1357,11 +2589,17 @@ class PedidoDetalleScreen extends StatelessWidget {
                   Expanded(
                     child: Text(
                       'Pedido #${pedidoId.substring(0, pedidoId.length >= 6 ? 6 : pedidoId.length).toUpperCase()}',
-                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: _estadoColor(estado).withOpacity(0.16),
                       borderRadius: BorderRadius.circular(999),
@@ -1369,7 +2607,10 @@ class PedidoDetalleScreen extends StatelessWidget {
                     ),
                     child: Text(
                       _estadoTexto(estado),
-                      style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 12,
+                      ),
                     ),
                   ),
                 ],
@@ -1377,10 +2618,17 @@ class PedidoDetalleScreen extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 _fechaTexto(fecha),
-                style: const TextStyle(color: Colors.black54, fontSize: 12.5),
+                style: TextStyle(
+                  color: colors.onSurface.withOpacity(0.64),
+                  fontSize: 12.5,
+                ),
               ),
               const SizedBox(height: 14),
-              _statusBox(estado),
+              _statusBox(context, estado),
+              if (_notificationText(data).isNotEmpty) ...[
+                const SizedBox(height: 12),
+                _notificationBox(context, data),
+              ],
               const SizedBox(height: 18),
               const Text(
                 'Ruta de entrega',
@@ -1391,12 +2639,18 @@ class PedidoDetalleScreen extends StatelessWidget {
               if (distanciaTexto.isNotEmpty || duracionTexto.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Text(
-                  [distanciaTexto, duracionTexto].where((e) => e.isNotEmpty).join(' · '),
-                  style: const TextStyle(color: Colors.black54, fontWeight: FontWeight.w700),
+                  [
+                    distanciaTexto,
+                    duracionTexto,
+                  ].where((e) => e.isNotEmpty).join(' · '),
+                  style: TextStyle(
+                    color: colors.onSurface.withOpacity(0.68),
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ],
               const SizedBox(height: 14),
-              _repartidorCard(data),
+              _repartidorCard(context, data),
               const SizedBox(height: 18),
               const Text(
                 'Detalle de productos',
@@ -1404,30 +2658,36 @@ class PedidoDetalleScreen extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               if (items.isEmpty)
-                const Text(
+                Text(
                   'Este pedido no tiene productos registrados.',
-                  style: TextStyle(color: Colors.black54),
+                  style: TextStyle(color: colors.onSurface.withOpacity(0.64)),
                 )
               else
-                ...items.map((item) => Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: _productoItem(item),
-                    )),
+                ...items.map(
+                  (item) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _productoItem(context, item),
+                  ),
+                ),
               const SizedBox(height: 10),
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: colors.surface,
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.black.withOpacity(0.06)),
+                  border: Border.all(color: colors.outlineVariant),
                 ),
                 child: Column(
                   children: [
-                    _totalRow('Subtotal', data['subtotal']),
+                    _totalRow(context, 'Subtotal', data['subtotal']),
                     const SizedBox(height: 8),
-                    _totalRow('Delivery', data['delivery']),
+                    _totalRow(context, 'Delivery', data['delivery']),
+                    if (descuento > 0) ...[
+                      const SizedBox(height: 8),
+                      _totalRow(context, 'Descuento', -descuento),
+                    ],
                     const Divider(height: 24),
-                    _totalRow('Total', data['total'], big: true),
+                    _totalRow(context, 'Total', data['total'], big: true),
                   ],
                 ),
               ),
@@ -1443,8 +2703,20 @@ class PedidoDetalleScreen extends StatelessWidget {
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.red.shade700,
                       side: BorderSide(color: Colors.red.shade300),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
+                  ),
+                )
+              else if (estado == 'entregado' && items.isNotEmpty)
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: FilledButton.icon(
+                    onPressed: () => _repeatOrderItems(context, items),
+                    icon: const Icon(Icons.replay_rounded),
+                    label: const Text('Volver a pedir'),
                   ),
                 )
               else
@@ -1452,15 +2724,19 @@ class PedidoDetalleScreen extends StatelessWidget {
                   width: double.infinity,
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
+                    color: colors.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: colors.outlineVariant),
                   ),
                   child: Text(
                     estado == 'cancelado'
                         ? 'Este pedido ya fue cancelado.'
                         : 'Este pedido ya no puede cancelarse desde la app.',
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.black54, fontWeight: FontWeight.w700),
+                    style: TextStyle(
+                      color: colors.onSurface.withOpacity(0.68),
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
             ],
@@ -1561,6 +2837,8 @@ class FavoritosScreen extends StatelessWidget {
     BuildContext context,
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
   ) {
+    final colors = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
     final data = doc.data();
     final nombre = data['nombre']?.toString() ?? 'Producto';
     final categoria = data['categoria']?.toString() ?? 'Sin categoría';
@@ -1569,9 +2847,13 @@ class FavoritosScreen extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.black.withOpacity(0.06)),
+        border: Border.all(
+          color: dark
+              ? Colors.white.withOpacity(0.10)
+              : Colors.black.withOpacity(0.06),
+        ),
       ),
       child: Row(
         children: [
@@ -1585,19 +2867,30 @@ class FavoritosScreen extends StatelessWidget {
                   nombre,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                  style: TextStyle(
+                    color: colors.onSurface,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                  ),
                 ),
                 const SizedBox(height: 3),
                 Text(
                   categoria,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.black54, fontSize: 12.5),
+                  style: TextStyle(
+                    color: colors.onSurface.withOpacity(0.64),
+                    fontSize: 12.5,
+                  ),
                 ),
                 const SizedBox(height: 6),
                 Text(
                   _money(data['precio']),
-                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 17),
+                  style: TextStyle(
+                    color: colors.onSurface,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 17,
+                  ),
                 ),
               ],
             ),
@@ -1676,7 +2969,10 @@ class FavoritosScreen extends StatelessWidget {
                 child: Text(
                   'No se pudieron cargar tus favoritos:\n${snapshot.error}',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w700),
+                  style: const TextStyle(
+                    color: Colors.red,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             );
@@ -1687,9 +2983,12 @@ class FavoritosScreen extends StatelessWidget {
           }
 
           final docs = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
-            snapshot.data?.docs ?? <QueryDocumentSnapshot<Map<String, dynamic>>>[],
+            snapshot.data?.docs ??
+                <QueryDocumentSnapshot<Map<String, dynamic>>>[],
           );
-          docs.sort((a, b) => _createdAt(b.data()).compareTo(_createdAt(a.data())));
+          docs.sort(
+            (a, b) => _createdAt(b.data()).compareTo(_createdAt(a.data())),
+          );
 
           if (docs.isEmpty) {
             return const Center(
@@ -1708,7 +3007,8 @@ class FavoritosScreen extends StatelessWidget {
             padding: const EdgeInsets.all(14),
             itemCount: docs.length,
             separatorBuilder: (_, __) => const SizedBox(height: 12),
-            itemBuilder: (context, index) => _favoritoCard(context, docs[index]),
+            itemBuilder: (context, index) =>
+                _favoritoCard(context, docs[index]),
           );
         },
       ),
@@ -1754,7 +3054,8 @@ class ResenasScreen extends StatelessWidget {
   }
 
   String _productosResumen(Map<String, dynamic> data) {
-    final rawItems = (data['items'] as List?) ?? (data['productos'] as List?) ?? const [];
+    final rawItems =
+        (data['items'] as List?) ?? (data['productos'] as List?) ?? const [];
     final items = rawItems
         .whereType<Map>()
         .map((item) => Map<String, dynamic>.from(item))
@@ -1764,7 +3065,10 @@ class ResenasScreen extends StatelessWidget {
 
     final nombres = items
         .take(3)
-        .map((item) => '${item['cantidad'] ?? 1} x ${item['nombre'] ?? 'Producto'}')
+        .map(
+          (item) =>
+              '${item['cantidad'] ?? 1} x ${item['nombre'] ?? 'Producto'}',
+        )
         .join(', ');
 
     if (items.length <= 3) return nombres;
@@ -1790,7 +3094,9 @@ class ResenasScreen extends StatelessWidget {
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) {
           return AlertDialog(
-            title: Text(resenaExistente == null ? 'Dejar reseña' : 'Editar reseña'),
+            title: Text(
+              resenaExistente == null ? 'Dejar reseña' : 'Editar reseña',
+            ),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -1803,7 +3109,10 @@ class ResenasScreen extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     _productosResumen(pedido),
-                    style: const TextStyle(color: Colors.black54, fontSize: 12.5),
+                    style: const TextStyle(
+                      color: Colors.black54,
+                      fontSize: 12.5,
+                    ),
                   ),
                   const SizedBox(height: 14),
                   const Text(
@@ -1814,9 +3123,12 @@ class ResenasScreen extends StatelessWidget {
                     children: List.generate(5, (index) {
                       final selected = index < calificacion;
                       return IconButton(
-                        onPressed: () => setDialogState(() => calificacion = index + 1),
+                        onPressed: () =>
+                            setDialogState(() => calificacion = index + 1),
                         icon: Icon(
-                          selected ? Icons.star_rounded : Icons.star_border_rounded,
+                          selected
+                              ? Icons.star_rounded
+                              : Icons.star_border_rounded,
                           color: selected ? amarillo : Colors.black38,
                           size: 31,
                         ),
@@ -1855,27 +3167,30 @@ class ResenasScreen extends StatelessWidget {
     if (guardar != true) return;
 
     final comentario = controller.text.trim();
-    final rawItems = (pedido['items'] as List?) ?? (pedido['productos'] as List?) ?? const [];
+    final rawItems =
+        (pedido['items'] as List?) ??
+        (pedido['productos'] as List?) ??
+        const [];
 
     try {
       await FirebaseFirestore.instance
           .collection('resenas_restaurante')
           .doc(pedidoDoc.id)
           .set({
-        'userId': user.uid,
-        'email': user.email ?? '',
-        'pedidoId': pedidoDoc.id,
-        'calificacion': calificacion,
-        'comentario': comentario,
-        'productosResumen': _productosResumen(pedido),
-        'items': rawItems,
-        'total': _number(pedido['total']),
-        'estadoPedido': pedido['estado']?.toString() ?? 'entregado',
-        'creadoEn': resenaExistente == null
-            ? FieldValue.serverTimestamp()
-            : resenaExistente['creadoEn'] ?? FieldValue.serverTimestamp(),
-        'actualizadoEn': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+            'userId': user.uid,
+            'email': user.email ?? '',
+            'pedidoId': pedidoDoc.id,
+            'calificacion': calificacion,
+            'comentario': comentario,
+            'productosResumen': _productosResumen(pedido),
+            'items': rawItems,
+            'total': _number(pedido['total']),
+            'estadoPedido': pedido['estado']?.toString() ?? 'entregado',
+            'creadoEn': resenaExistente == null
+                ? FieldValue.serverTimestamp()
+                : resenaExistente['creadoEn'] ?? FieldValue.serverTimestamp(),
+            'actualizadoEn': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
 
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1940,6 +3255,8 @@ class ResenasScreen extends StatelessWidget {
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
     Map<String, dynamic>? resena,
   ) {
+    final colors = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
     final data = doc.data();
     final reviewed = resena != null;
     final rating = resena?['calificacion'] is num
@@ -1949,9 +3266,13 @@ class ResenasScreen extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.black.withOpacity(0.06)),
+        border: Border.all(
+          color: dark
+              ? Colors.white.withOpacity(0.10)
+              : Colors.black.withOpacity(0.06),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1961,18 +3282,32 @@ class ResenasScreen extends StatelessWidget {
               Expanded(
                 child: Text(
                   _pedidoTitulo(doc.id),
-                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                  style: TextStyle(
+                    color: colors.onSurface,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 16,
+                  ),
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 5,
+                ),
                 decoration: BoxDecoration(
-                  color: reviewed ? Colors.green.shade50 : const Color(0xFFFFF4BF),
+                  color: reviewed
+                      ? Colors.green.withOpacity(dark ? 0.18 : 0.10)
+                      : dark
+                      ? const Color(0xFF2B2616)
+                      : const Color(0xFFFFF4BF),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
                   reviewed ? 'Reseñado' : 'Falta reseñar',
-                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 12),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                  ),
                 ),
               ),
             ],
@@ -1980,14 +3315,20 @@ class ResenasScreen extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             '${_fechaTexto(_createdAt(data))} · Total ${_money(data['total'])}',
-            style: const TextStyle(color: Colors.black54, fontSize: 12.5),
+            style: TextStyle(
+              color: colors.onSurface.withOpacity(0.64),
+              fontSize: 12.5,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             _productosResumen(data),
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.w700),
+            style: TextStyle(
+              color: colors.onSurface,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           if (reviewed) ...[
             const SizedBox(height: 10),
@@ -1996,7 +3337,7 @@ class ResenasScreen extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 resena['comentario'].toString(),
-                style: const TextStyle(color: Colors.black87),
+                style: TextStyle(color: colors.onSurface.withOpacity(0.86)),
               ),
             ],
           ],
@@ -2076,7 +3417,10 @@ class ResenasScreen extends StatelessWidget {
                 child: Text(
                   'No se pudieron cargar tus pedidos:\n${pedidosSnapshot.error}',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w700),
+                  style: const TextStyle(
+                    color: Colors.red,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             );
@@ -2086,12 +3430,19 @@ class ResenasScreen extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final pedidos = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
-            pedidosSnapshot.data?.docs ?? <QueryDocumentSnapshot<Map<String, dynamic>>>[],
-          )
-              .where((doc) => _estadoNormalizado(doc.data()['estado']) == 'entregado')
-              .toList();
-          pedidos.sort((a, b) => _createdAt(b.data()).compareTo(_createdAt(a.data())));
+          final pedidos =
+              List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
+                    pedidosSnapshot.data?.docs ??
+                        <QueryDocumentSnapshot<Map<String, dynamic>>>[],
+                  )
+                  .where(
+                    (doc) =>
+                        _estadoNormalizado(doc.data()['estado']) == 'entregado',
+                  )
+                  .toList();
+          pedidos.sort(
+            (a, b) => _createdAt(b.data()).compareTo(_createdAt(a.data())),
+          );
 
           return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: FirebaseFirestore.instance
@@ -2106,7 +3457,10 @@ class ResenasScreen extends StatelessWidget {
                     child: Text(
                       'No se pudieron cargar tus reseñas:\n${resenasSnapshot.error}',
                       textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w700),
+                      style: const TextStyle(
+                        color: Colors.red,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 );
@@ -2117,14 +3471,20 @@ class ResenasScreen extends StatelessWidget {
               }
 
               final resenas = <String, Map<String, dynamic>>{};
-              for (final doc in resenasSnapshot.data?.docs ?? <QueryDocumentSnapshot<Map<String, dynamic>>>[]) {
+              for (final doc
+                  in resenasSnapshot.data?.docs ??
+                      <QueryDocumentSnapshot<Map<String, dynamic>>>[]) {
                 final data = doc.data();
                 final pedidoId = data['pedidoId']?.toString() ?? doc.id;
                 resenas[pedidoId] = data;
               }
 
-              final pendientes = pedidos.where((doc) => !resenas.containsKey(doc.id)).toList();
-              final resenados = pedidos.where((doc) => resenas.containsKey(doc.id)).toList();
+              final pendientes = pedidos
+                  .where((doc) => !resenas.containsKey(doc.id))
+                  .toList();
+              final resenados = pedidos
+                  .where((doc) => resenas.containsKey(doc.id))
+                  .toList();
 
               if (pedidos.isEmpty) {
                 return const Center(
@@ -2152,7 +3512,10 @@ class ResenasScreen extends StatelessWidget {
                       ),
                       child: const Text(
                         'No tienes pedidos pendientes de reseña.',
-                        style: TextStyle(color: Colors.black54, fontWeight: FontWeight.w700),
+                        style: TextStyle(
+                          color: Colors.black54,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     )
                   else
@@ -2172,14 +3535,22 @@ class ResenasScreen extends StatelessWidget {
                       ),
                       child: const Text(
                         'Aún no has reseñado pedidos.',
-                        style: TextStyle(color: Colors.black54, fontWeight: FontWeight.w700),
+                        style: TextStyle(
+                          color: Colors.black54,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     )
                   else
                     ...resenados.map(
                       (doc) => Padding(
                         padding: const EdgeInsets.only(bottom: 12),
-                        child: _pedidoResenaCard(context, user, doc, resenas[doc.id]),
+                        child: _pedidoResenaCard(
+                          context,
+                          user,
+                          doc,
+                          resenas[doc.id],
+                        ),
                       ),
                     ),
                 ],

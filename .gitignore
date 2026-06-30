@@ -46,3 +46,6 @@ app.*.map.json
 
 # Secret environment file
 .env
+
+# Firebase Hosting local cache
+.firebase/

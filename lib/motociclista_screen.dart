@@ -21,6 +21,7 @@ class MotociclistaScreen extends StatefulWidget {
 class _MotociclistaScreenState extends State<MotociclistaScreen> {
   static const Color negro = Color(0xFF050505);
   static const Color amarillo = Color(0xFFFFC928);
+  final Map<String, Future<String>> _clienteTelefonoCache = {};
 
   User? get _user => FirebaseAuth.instance.currentUser;
 
@@ -29,7 +30,266 @@ class _MotociclistaScreenState extends State<MotociclistaScreen> {
     return double.tryParse(value?.toString() ?? '') ?? 0.0;
   }
 
-  String _money(dynamic value) => 'S/ ${_moneyNumber(value).toStringAsFixed(2)}';
+  String _money(dynamic value) =>
+      'S/ ${_moneyNumber(value).toStringAsFixed(2)}';
+
+  String _textField(Map<String, dynamic> data, List<String> fields) {
+    for (final field in fields) {
+      final text = data[field]?.toString().trim() ?? '';
+      if (text.isNotEmpty) return text;
+    }
+    return '';
+  }
+
+  Map<String, dynamic>? _asMap(dynamic value) {
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return null;
+  }
+
+  dynamic _firstValue(Map<String, dynamic> data, List<String> fields) {
+    for (final field in fields) {
+      if (data.containsKey(field) && data[field] != null) return data[field];
+    }
+    return null;
+  }
+
+  List<Map<String, dynamic>> _itemsFrom(dynamic raw) {
+    if (raw is List) {
+      return raw.whereType<Map>().map((item) {
+        return Map<String, dynamic>.from(item);
+      }).toList();
+    }
+    if (raw is Map) {
+      return raw.values.whereType<Map>().map((item) {
+        return Map<String, dynamic>.from(item);
+      }).toList();
+    }
+    return const [];
+  }
+
+  List<Map<String, dynamic>> _items(Map<String, dynamic> data) {
+    final raw = _firstValue(data, [
+      'items',
+      'productos',
+      'platos',
+      'detalleItems',
+      'productosPedido',
+    ]);
+    final direct = _itemsFrom(raw);
+    if (direct.isNotEmpty) return direct;
+
+    for (final parentKey in ['pedido', 'detalle', 'orden', 'carrito']) {
+      final parent = _asMap(data[parentKey]);
+      if (parent == null) continue;
+      final nested = _itemsFrom(
+        _firstValue(parent, ['items', 'productos', 'platos', 'lineas']),
+      );
+      if (nested.isNotEmpty) return nested;
+    }
+    return const [];
+  }
+
+  String _itemNombre(Map<String, dynamic> item) {
+    final text = _textField(item, [
+      'nombre',
+      'producto',
+      'productoNombre',
+      'nombreProducto',
+      'name',
+      'title',
+    ]);
+    return text.isEmpty ? 'Producto' : text;
+  }
+
+  String _itemCantidad(Map<String, dynamic> item) {
+    final value = _firstValue(item, [
+      'cantidad',
+      'qty',
+      'quantity',
+      'unidades',
+    ]);
+    if (value is num) return value.toStringAsFixed(value % 1 == 0 ? 0 : 2);
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? '1' : text;
+  }
+
+  String _itemVariante(Map<String, dynamic> item) {
+    return _textField(item, [
+      'variante',
+      'tamano',
+      'tamanio',
+      'size',
+      'presentacion',
+    ]);
+  }
+
+  String _clienteTelefono(Map<String, dynamic> data) {
+    final direct = _textField(data, [
+      'clienteTelefono',
+      'telefonoCliente',
+      'clienteCelular',
+      'celularCliente',
+      'telefonoUsuario',
+      'numeroTelefono',
+      'numeroCelular',
+      'telefono',
+      'celular',
+      'phone',
+      'whatsapp',
+      'clienteWhatsapp',
+    ]);
+    if (direct.isNotEmpty) return direct;
+
+    for (final parentKey in [
+      'cliente',
+      'usuario',
+      'perfilCliente',
+      'customer',
+      'datosCliente',
+      'contacto',
+      'direccion',
+    ]) {
+      final parent = _asMap(data[parentKey]);
+      if (parent == null) continue;
+      final nested = _clienteTelefono(parent);
+      if (nested.isNotEmpty) return nested;
+    }
+
+    return '';
+  }
+
+  String _clienteEmail(Map<String, dynamic> data) {
+    return _textField(data, ['clienteEmail', 'email', 'correo', 'userEmail']);
+  }
+
+  String _clienteUid(Map<String, dynamic> data) {
+    return _textField(data, [
+      'userId',
+      'clienteId',
+      'clienteUid',
+      'usuarioId',
+      'uid',
+    ]);
+  }
+
+  Future<String> _loadClienteTelefono(Map<String, dynamic> data) async {
+    final direct = _clienteTelefono(data);
+    if (direct.isNotEmpty) return direct;
+
+    final users = FirebaseFirestore.instance.collection('usuarios');
+    final uid = _clienteUid(data);
+    if (uid.isNotEmpty) {
+      try {
+        final doc = await users.doc(uid).get();
+        final phone = _clienteTelefono(doc.data() ?? const {});
+        if (phone.isNotEmpty) return phone;
+      } catch (_) {}
+    }
+
+    final email = _clienteEmail(data);
+    if (email.isNotEmpty) {
+      try {
+        final query = await users
+            .where('email', isEqualTo: email)
+            .limit(1)
+            .get();
+        if (query.docs.isNotEmpty) {
+          final phone = _clienteTelefono(query.docs.first.data());
+          if (phone.isNotEmpty) return phone;
+        }
+      } catch (_) {}
+    }
+
+    return '';
+  }
+
+  Future<String> _clienteTelefonoFuture(Map<String, dynamic> data) {
+    final direct = _clienteTelefono(data);
+    if (direct.isNotEmpty) return Future.value(direct);
+    final uid = _clienteUid(data);
+    final email = _clienteEmail(data);
+    final cacheKey = uid.isNotEmpty
+        ? 'uid:$uid'
+        : email.isNotEmpty
+        ? 'email:$email'
+        : data.hashCode.toString();
+    return _clienteTelefonoCache.putIfAbsent(
+      cacheKey,
+      () => _loadClienteTelefono(data),
+    );
+  }
+
+  Widget _clienteTelefonoLine(Map<String, dynamic> data) {
+    Widget row(String text, {bool muted = false}) {
+      return Row(
+        children: [
+          Icon(
+            Icons.phone_rounded,
+            size: 18,
+            color: muted ? Colors.black38 : negro,
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                color: muted ? Colors.black38 : Colors.black54,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    final direct = _clienteTelefono(data);
+    if (direct.isNotEmpty) return row(direct);
+
+    return FutureBuilder<String>(
+      future: _clienteTelefonoFuture(data),
+      builder: (context, snapshot) {
+        final phone = snapshot.data?.trim() ?? '';
+        if (phone.isNotEmpty) return row(phone);
+        if (snapshot.connectionState != ConnectionState.done) {
+          return row('Buscando celular...', muted: true);
+        }
+        return row('Celular no registrado', muted: true);
+      },
+    );
+  }
+
+  Widget _pedidoItemsList(Map<String, dynamic> data) {
+    final items = _items(data);
+    if (items.isEmpty) {
+      return const Text(
+        'Pedido sin detalle',
+        style: TextStyle(fontWeight: FontWeight.w800),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final item in items) ...[
+          Text(
+            '${_itemCantidad(item)} x ${_itemNombre(item)}',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+          if (_itemVariante(item).isNotEmpty && _itemVariante(item) != 'Normal')
+            Text(
+              _itemVariante(item),
+              style: const TextStyle(
+                color: Colors.black54,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          const SizedBox(height: 4),
+        ],
+      ],
+    );
+  }
 
   double _ganancia(Map<String, dynamic> data) {
     final ganancia = data['gananciaRepartidor'];
@@ -42,7 +302,9 @@ class _MotociclistaScreenState extends State<MotociclistaScreen> {
     final distancia = data['distanciaTexto']?.toString() ?? '';
     final duracion = data['duracionTexto']?.toString() ?? '';
     final partes = [distancia, duracion].where((e) => e.isNotEmpty).toList();
-    return partes.isEmpty ? 'Ruta local → cliente por calcular' : partes.join(' · ');
+    return partes.isEmpty
+        ? 'Ruta local → cliente por calcular'
+        : partes.join(' · ');
   }
 
   Widget _topResumen() {
@@ -58,8 +320,15 @@ class _MotociclistaScreenState extends State<MotociclistaScreen> {
           Container(
             width: 54,
             height: 54,
-            decoration: const BoxDecoration(color: amarillo, shape: BoxShape.circle),
-            child: const Icon(Icons.delivery_dining_rounded, size: 30, color: negro),
+            decoration: const BoxDecoration(
+              color: amarillo,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.delivery_dining_rounded,
+              size: 30,
+              color: negro,
+            ),
           ),
           const SizedBox(width: 14),
           const Expanded(
@@ -68,12 +337,19 @@ class _MotociclistaScreenState extends State<MotociclistaScreen> {
               children: [
                 Text(
                   'Modo motociclista',
-                  style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900),
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
                 SizedBox(height: 4),
                 Text(
                   'Toca un pedido para ver el mapa, revisar la ruta y aceptar o rechazar.',
-                  style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600),
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
@@ -88,19 +364,18 @@ class _MotociclistaScreenState extends State<MotociclistaScreen> {
     );
   }
 
-  Widget _pedidoDisponibleCard(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+  Widget _pedidoDisponibleCard(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
     final data = doc.data();
-    final items = ((data['items'] as List?) ?? const []).whereType<Map>().toList();
-    final primerItem = items.isEmpty
-        ? 'Pedido sin detalle'
-        : '${items.first['cantidad'] ?? 1} x ${items.first['nombre'] ?? 'Producto'}';
-    final extra = items.length > 1 ? ' + ${items.length - 1} más' : '';
     final ganancia = _ganancia(data);
 
     return InkWell(
       onTap: () => Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => MotociclistaMapaScreen(pedidoId: doc.id)),
+        MaterialPageRoute(
+          builder: (_) => MotociclistaMapaScreen(pedidoId: doc.id),
+        ),
       ),
       borderRadius: BorderRadius.circular(22),
       child: Container(
@@ -110,7 +385,11 @@ class _MotociclistaScreenState extends State<MotociclistaScreen> {
           borderRadius: BorderRadius.circular(22),
           border: Border.all(color: Colors.black.withOpacity(0.06)),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 12, offset: const Offset(0, 7)),
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 12,
+              offset: const Offset(0, 7),
+            ),
           ],
         ),
         child: Column(
@@ -121,24 +400,46 @@ class _MotociclistaScreenState extends State<MotociclistaScreen> {
                 Expanded(
                   child: Text(
                     'Pedido #${doc.id.substring(0, doc.id.length >= 6 ? 6 : doc.id.length).toUpperCase()}',
-                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                    ),
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                  decoration: BoxDecoration(color: amarillo, borderRadius: BorderRadius.circular(999)),
-                  child: Text('Ganas ${_money(ganancia)}', style: const TextStyle(fontWeight: FontWeight.w900)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: amarillo,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    'Ganas ${_money(ganancia)}',
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 9),
-            Text('$primerItem$extra', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800)),
+            _pedidoItemsList(data),
+            const SizedBox(height: 8),
+            _clienteTelefonoLine(data),
             const SizedBox(height: 9),
             Row(
               children: [
                 const Icon(Icons.storefront_rounded, size: 18, color: negro),
                 const SizedBox(width: 6),
-                Expanded(child: Text('Local → Cliente · ${_rutaResumen(data)}', style: const TextStyle(color: Colors.black54, fontWeight: FontWeight.w700))),
+                Expanded(
+                  child: Text(
+                    'Local → Cliente · ${_rutaResumen(data)}',
+                    style: const TextStyle(
+                      color: Colors.black54,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -147,7 +448,9 @@ class _MotociclistaScreenState extends State<MotociclistaScreen> {
               child: ElevatedButton.icon(
                 onPressed: () => Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => MotociclistaMapaScreen(pedidoId: doc.id)),
+                  MaterialPageRoute(
+                    builder: (_) => MotociclistaMapaScreen(pedidoId: doc.id),
+                  ),
                 ),
                 icon: const Icon(Icons.map_rounded),
                 label: const Text('Ver en mapa y decidir'),
@@ -166,13 +469,20 @@ class _MotociclistaScreenState extends State<MotociclistaScreen> {
     final label = estado == 'en_camino_local'
         ? 'Aceptado · ve al local'
         : estado == 'en_camino'
-            ? 'En ruta al cliente'
-            : 'Pedido activo';
+        ? 'En ruta al cliente'
+        : 'Pedido activo';
+    final statusLabel = estado == 'en_preparacion'
+        ? 'Asignado - esperando cocina'
+        : estado == 'listo'
+        ? 'Listo - recoge en local'
+        : label;
 
     return InkWell(
       onTap: () => Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => MotociclistaMapaScreen(pedidoId: doc.id)),
+        MaterialPageRoute(
+          builder: (_) => MotociclistaMapaScreen(pedidoId: doc.id),
+        ),
       ),
       borderRadius: BorderRadius.circular(24),
       child: Container(
@@ -190,11 +500,26 @@ class _MotociclistaScreenState extends State<MotociclistaScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Pedido #${doc.id.substring(0, doc.id.length >= 6 ? 6 : doc.id.length).toUpperCase()}', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                  Text(
+                    'Pedido #${doc.id.substring(0, doc.id.length >= 6 ? 6 : doc.id.length).toUpperCase()}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 16,
+                    ),
+                  ),
                   const SizedBox(height: 3),
-                  Text(label, style: const TextStyle(fontWeight: FontWeight.w800, color: Colors.black54)),
+                  Text(
+                    statusLabel,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: Colors.black54,
+                    ),
+                  ),
                   const SizedBox(height: 3),
-                  Text('Ganancia ${_money(ganancia)}', style: const TextStyle(fontWeight: FontWeight.w900)),
+                  Text(
+                    'Ganancia ${_money(ganancia)}',
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
                 ],
               ),
             ),
@@ -207,18 +532,27 @@ class _MotociclistaScreenState extends State<MotociclistaScreen> {
 
   Widget _activeOrderSection(User user) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance.collection('pedidos_restaurante').where('repartidorId', isEqualTo: user.uid).snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('pedidos_restaurante')
+          .where('repartidorId', isEqualTo: user.uid)
+          .snapshots(),
       builder: (context, snapshot) {
         final docs = (snapshot.data?.docs ?? []).where((doc) {
           final estado = doc.data()['estado']?.toString();
-          return estado == 'en_camino_local' || estado == 'en_camino';
+          return estado == 'en_preparacion' ||
+              estado == 'listo' ||
+              estado == 'en_camino_local' ||
+              estado == 'en_camino';
         }).toList();
         if (docs.isEmpty) return const SizedBox.shrink();
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 16),
-            const Text('Pedido actual', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+            const Text(
+              'Pedido actual',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+            ),
             const SizedBox(height: 10),
             _pedidoActivoCard(docs.first),
           ],
@@ -229,40 +563,63 @@ class _MotociclistaScreenState extends State<MotociclistaScreen> {
 
   Widget _availableOrders(User user) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance.collection('pedidos_restaurante').where('estado', whereIn: ['en_preparacion', 'listo']).snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('pedidos_restaurante')
+          .where('estado', whereIn: ['en_preparacion', 'listo'])
+          .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return Text('Error al cargar pedidos: ${snapshot.error}', style: const TextStyle(color: Colors.red));
+          return Text(
+            'Error al cargar pedidos: ${snapshot.error}',
+            style: const TextStyle(color: Colors.red),
+          );
         }
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: Padding(padding: EdgeInsets.all(18), child: CircularProgressIndicator()));
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(18),
+              child: CircularProgressIndicator(),
+            ),
+          );
         }
 
         final docs = (snapshot.data?.docs ?? []).where((doc) {
           final data = doc.data();
           final asignado = data['repartidorAsignado'] == true;
-          final rechazados = (data['rechazadosPor'] as List?)?.map((e) => e.toString()).toSet() ?? <String>{};
+          final rechazados =
+              (data['rechazadosPor'] as List?)
+                  ?.map((e) => e.toString())
+                  .toSet() ??
+              <String>{};
           return !asignado && !rechazados.contains(user.uid);
         }).toList();
 
         if (docs.isEmpty) {
           return Container(
             padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(22)),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(22),
+            ),
             child: const Text(
-              'No hay pedidos disponibles por ahora. Cuando el restaurante cambie un pedido a en_preparacion o listo, aparecerá aquí.',
+              'No hay pedidos disponibles por ahora. Cuando cocina marque un pedido como listo, aparecerá aquí.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.black54, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                color: Colors.black54,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           );
         }
 
         return Column(
           children: docs
-              .map((doc) => Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _pedidoDisponibleCard(doc),
-                  ))
+              .map(
+                (doc) => Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: _pedidoDisponibleCard(doc),
+                ),
+              )
               .toList(),
         );
       },
@@ -273,7 +630,9 @@ class _MotociclistaScreenState extends State<MotociclistaScreen> {
   Widget build(BuildContext context) {
     final user = _user;
     if (user == null) {
-      return const Scaffold(body: Center(child: Text('Inicia sesión como motociclista.')));
+      return const Scaffold(
+        body: Center(child: Text('Inicia sesión como motociclista.')),
+      );
     }
 
     return Scaffold(
@@ -284,7 +643,10 @@ class _MotociclistaScreenState extends State<MotociclistaScreen> {
           _topResumen(),
           _activeOrderSection(user),
           const SizedBox(height: 16),
-          const Text('Pedidos para enviar', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+          const Text(
+            'Pedidos para enviar',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+          ),
           const SizedBox(height: 10),
           _availableOrders(user),
         ],
@@ -321,8 +683,267 @@ class _MotociclistaMapaScreenState extends State<MotociclistaMapaScreen> {
   int _ultimoSetStateSensorMs = 0;
   int _ultimoEnvioFirestoreMs = 0;
   GoogleMapController? _mapController;
+  final Map<String, Future<String>> _clienteTelefonoCache = {};
 
   User? get _user => FirebaseAuth.instance.currentUser;
+
+  String _textField(Map<String, dynamic> data, List<String> fields) {
+    for (final field in fields) {
+      final text = data[field]?.toString().trim() ?? '';
+      if (text.isNotEmpty) return text;
+    }
+    return '';
+  }
+
+  Map<String, dynamic>? _asMap(dynamic value) {
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return null;
+  }
+
+  dynamic _firstValue(Map<String, dynamic> data, List<String> fields) {
+    for (final field in fields) {
+      if (data.containsKey(field) && data[field] != null) return data[field];
+    }
+    return null;
+  }
+
+  List<Map<String, dynamic>> _itemsFrom(dynamic raw) {
+    if (raw is List) {
+      return raw.whereType<Map>().map((item) {
+        return Map<String, dynamic>.from(item);
+      }).toList();
+    }
+    if (raw is Map) {
+      return raw.values.whereType<Map>().map((item) {
+        return Map<String, dynamic>.from(item);
+      }).toList();
+    }
+    return const [];
+  }
+
+  List<Map<String, dynamic>> _items(Map<String, dynamic> data) {
+    final raw = _firstValue(data, [
+      'items',
+      'productos',
+      'platos',
+      'detalleItems',
+      'productosPedido',
+    ]);
+    final direct = _itemsFrom(raw);
+    if (direct.isNotEmpty) return direct;
+
+    for (final parentKey in ['pedido', 'detalle', 'orden', 'carrito']) {
+      final parent = _asMap(data[parentKey]);
+      if (parent == null) continue;
+      final nested = _itemsFrom(
+        _firstValue(parent, ['items', 'productos', 'platos', 'lineas']),
+      );
+      if (nested.isNotEmpty) return nested;
+    }
+    return const [];
+  }
+
+  String _itemNombre(Map<String, dynamic> item) {
+    final text = _textField(item, [
+      'nombre',
+      'producto',
+      'productoNombre',
+      'nombreProducto',
+      'name',
+      'title',
+    ]);
+    return text.isEmpty ? 'Producto' : text;
+  }
+
+  String _itemCantidad(Map<String, dynamic> item) {
+    final value = _firstValue(item, [
+      'cantidad',
+      'qty',
+      'quantity',
+      'unidades',
+    ]);
+    if (value is num) return value.toStringAsFixed(value % 1 == 0 ? 0 : 2);
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? '1' : text;
+  }
+
+  String _itemVariante(Map<String, dynamic> item) {
+    return _textField(item, [
+      'variante',
+      'tamano',
+      'tamanio',
+      'size',
+      'presentacion',
+    ]);
+  }
+
+  String _clienteTelefono(Map<String, dynamic> data) {
+    final direct = _textField(data, [
+      'clienteTelefono',
+      'telefonoCliente',
+      'clienteCelular',
+      'celularCliente',
+      'telefonoUsuario',
+      'numeroTelefono',
+      'numeroCelular',
+      'telefono',
+      'celular',
+      'phone',
+      'whatsapp',
+      'clienteWhatsapp',
+    ]);
+    if (direct.isNotEmpty) return direct;
+
+    for (final parentKey in [
+      'cliente',
+      'usuario',
+      'perfilCliente',
+      'customer',
+      'datosCliente',
+      'contacto',
+      'direccion',
+    ]) {
+      final parent = _asMap(data[parentKey]);
+      if (parent == null) continue;
+      final nested = _clienteTelefono(parent);
+      if (nested.isNotEmpty) return nested;
+    }
+
+    return '';
+  }
+
+  String _clienteEmail(Map<String, dynamic> data) {
+    return _textField(data, ['clienteEmail', 'email', 'correo', 'userEmail']);
+  }
+
+  String _clienteUid(Map<String, dynamic> data) {
+    return _textField(data, [
+      'userId',
+      'clienteId',
+      'clienteUid',
+      'usuarioId',
+      'uid',
+    ]);
+  }
+
+  Future<String> _loadClienteTelefono(Map<String, dynamic> data) async {
+    final direct = _clienteTelefono(data);
+    if (direct.isNotEmpty) return direct;
+
+    final users = FirebaseFirestore.instance.collection('usuarios');
+    final uid = _clienteUid(data);
+    if (uid.isNotEmpty) {
+      try {
+        final doc = await users.doc(uid).get();
+        final phone = _clienteTelefono(doc.data() ?? const {});
+        if (phone.isNotEmpty) return phone;
+      } catch (_) {}
+    }
+
+    final email = _clienteEmail(data);
+    if (email.isNotEmpty) {
+      try {
+        final query = await users
+            .where('email', isEqualTo: email)
+            .limit(1)
+            .get();
+        if (query.docs.isNotEmpty) {
+          final phone = _clienteTelefono(query.docs.first.data());
+          if (phone.isNotEmpty) return phone;
+        }
+      } catch (_) {}
+    }
+
+    return '';
+  }
+
+  Future<String> _clienteTelefonoFuture(Map<String, dynamic> data) {
+    final direct = _clienteTelefono(data);
+    if (direct.isNotEmpty) return Future.value(direct);
+    final uid = _clienteUid(data);
+    final email = _clienteEmail(data);
+    final cacheKey = uid.isNotEmpty
+        ? 'uid:$uid'
+        : email.isNotEmpty
+        ? 'email:$email'
+        : data.hashCode.toString();
+    return _clienteTelefonoCache.putIfAbsent(
+      cacheKey,
+      () => _loadClienteTelefono(data),
+    );
+  }
+
+  Widget _clienteTelefonoLine(Map<String, dynamic> data) {
+    Widget row(String text, {bool muted = false}) {
+      return Row(
+        children: [
+          Icon(
+            Icons.phone_rounded,
+            size: 18,
+            color: muted ? Colors.black38 : negro,
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                color: muted ? Colors.black38 : Colors.black54,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    final direct = _clienteTelefono(data);
+    if (direct.isNotEmpty) return row(direct);
+
+    return FutureBuilder<String>(
+      future: _clienteTelefonoFuture(data),
+      builder: (context, snapshot) {
+        final phone = snapshot.data?.trim() ?? '';
+        if (phone.isNotEmpty) return row(phone);
+        if (snapshot.connectionState != ConnectionState.done) {
+          return row('Buscando celular...', muted: true);
+        }
+        return row('Celular no registrado', muted: true);
+      },
+    );
+  }
+
+  Widget _pedidoItemsList(Map<String, dynamic> data) {
+    final items = _items(data);
+    if (items.isEmpty) {
+      return const Text(
+        'Pedido sin detalle',
+        style: TextStyle(fontWeight: FontWeight.w800),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final item in items) ...[
+          Text(
+            '${_itemCantidad(item)} x ${_itemNombre(item)}',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+          if (_itemVariante(item).isNotEmpty && _itemVariante(item) != 'Normal')
+            Text(
+              _itemVariante(item),
+              style: const TextStyle(
+                color: Colors.black54,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          const SizedBox(height: 4),
+        ],
+      ],
+    );
+  }
 
   @override
   void initState() {
@@ -342,22 +963,34 @@ class _MotociclistaMapaScreenState extends State<MotociclistaMapaScreen> {
   }
 
   void _escucharPedido() {
-    _pedidoSub = FirebaseFirestore.instance.collection('pedidos_restaurante').doc(widget.pedidoId).snapshots().listen((doc) {
-      final data = doc.data();
-      if (data == null) {
-        if (mounted) setState(() => _error = 'Pedido no encontrado.');
-        return;
-      }
+    _pedidoSub = FirebaseFirestore.instance
+        .collection('pedidos_restaurante')
+        .doc(widget.pedidoId)
+        .snapshots()
+        .listen(
+          (doc) {
+            final data = doc.data();
+            if (data == null) {
+              if (mounted) setState(() => _error = 'Pedido no encontrado.');
+              return;
+            }
 
-      if (_pedidoData == null || _hayCambioImportante(_pedidoData!, data)) {
-        if (mounted) setState(() => _pedidoData = data);
-      }
-    }, onError: (e) {
-      if (mounted) setState(() => _error = 'No se pudo cargar el pedido: $e');
-    });
+            if (_pedidoData == null ||
+                _hayCambioImportante(_pedidoData!, data)) {
+              if (mounted) setState(() => _pedidoData = data);
+            }
+          },
+          onError: (e) {
+            if (mounted)
+              setState(() => _error = 'No se pudo cargar el pedido: $e');
+          },
+        );
   }
 
-  bool _hayCambioImportante(Map<String, dynamic> anterior, Map<String, dynamic> actual) {
+  bool _hayCambioImportante(
+    Map<String, dynamic> anterior,
+    Map<String, dynamic> actual,
+  ) {
     const keys = [
       'estado',
       'repartidorAsignado',
@@ -383,39 +1016,49 @@ class _MotociclistaMapaScreenState extends State<MotociclistaMapaScreen> {
   Future<void> _iniciarUbicacion() async {
     try {
       await DeliveryService.obtenerUbicacionActual();
-      final current = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.bestForNavigation);
+      final current = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.bestForNavigation,
+      );
       _onPosition(current, enviarFirestore: false);
 
-      const settings = LocationSettings(accuracy: LocationAccuracy.bestForNavigation, distanceFilter: 10);
-      _positionSub?.cancel();
-      _positionSub = Geolocator.getPositionStream(locationSettings: settings).listen(
-        (pos) => _onPosition(pos),
-        onError: (e) {
-          if (mounted) setState(() => _error = 'Activa el GPS para seguimiento: $e');
-        },
+      const settings = LocationSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 10,
       );
+      _positionSub?.cancel();
+      _positionSub = Geolocator.getPositionStream(locationSettings: settings)
+          .listen(
+            (pos) => _onPosition(pos),
+            onError: (e) {
+              if (mounted)
+                setState(() => _error = 'Activa el GPS para seguimiento: $e');
+            },
+          );
     } catch (e) {
-      if (mounted) setState(() => _error = 'Activa ubicación para usar el mapa: $e');
+      if (mounted)
+        setState(() => _error = 'Activa ubicación para usar el mapa: $e');
     }
   }
 
   void _iniciarSensores() {
-    _sensorSub = SensorsPlatform.instance.userAccelerometerEventStream().listen((e) {
-      final fuerza = math.sqrt(e.x * e.x + e.y * e.y + e.z * e.z);
-      final gpsRapido = _velocidadKmh >= 5;
-      final nuevoMovimiento = gpsRapido || fuerza > 0.60
-          ? (fuerza > 3.2 ? 'movimiento_fuerte' : 'en_movimiento')
-          : 'detenido';
+    _sensorSub = SensorsPlatform.instance.userAccelerometerEventStream().listen(
+      (e) {
+        final fuerza = math.sqrt(e.x * e.x + e.y * e.y + e.z * e.z);
+        final gpsRapido = _velocidadKmh >= 5;
+        final nuevoMovimiento = gpsRapido || fuerza > 0.60
+            ? (fuerza > 3.2 ? 'movimiento_fuerte' : 'en_movimiento')
+            : 'detenido';
 
-      final cambio = nuevoMovimiento != _movimiento;
-      _fuerza = fuerza;
-      _movimiento = nuevoMovimiento;
+        final cambio = nuevoMovimiento != _movimiento;
+        _fuerza = fuerza;
+        _movimiento = nuevoMovimiento;
 
-      final ahora = DateTime.now().millisecondsSinceEpoch;
-      if (mounted && (cambio || ahora - _ultimoSetStateSensorMs > 1800)) {
-        setState(() => _ultimoSetStateSensorMs = ahora);
-      }
-    });
+        final ahora = DateTime.now().millisecondsSinceEpoch;
+        if (mounted && (cambio || ahora - _ultimoSetStateSensorMs > 1800)) {
+          setState(() => _ultimoSetStateSensorMs = ahora);
+        }
+      },
+    );
   }
 
   double _bearing(LatLng start, LatLng end) {
@@ -423,7 +1066,9 @@ class _MotociclistaMapaScreenState extends State<MotociclistaMapaScreen> {
     final lat2 = end.latitude * math.pi / 180;
     final dLng = (end.longitude - start.longitude) * math.pi / 180;
     final y = math.sin(dLng) * math.cos(lat2);
-    final x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
+    final x =
+        math.cos(lat1) * math.sin(lat2) -
+        math.sin(lat1) * math.cos(lat2) * math.cos(dLng);
     return (math.atan2(y, x) * 180 / math.pi + 360) % 360;
   }
 
@@ -449,11 +1094,15 @@ class _MotociclistaMapaScreenState extends State<MotociclistaMapaScreen> {
   Future<String> _nombreRepartidor() async {
     final user = _user;
     if (user == null) return 'Motociclista';
-    final doc = await FirebaseFirestore.instance.collection('usuarios').doc(user.uid).get();
+    final doc = await FirebaseFirestore.instance
+        .collection('usuarios')
+        .doc(user.uid)
+        .get();
     final data = doc.data();
     final nombreCompleto = data?['nombreCompleto']?.toString().trim();
     final nombres = data?['nombres']?.toString().trim();
-    if (nombreCompleto != null && nombreCompleto.isNotEmpty) return nombreCompleto;
+    if (nombreCompleto != null && nombreCompleto.isNotEmpty)
+      return nombreCompleto;
     if (nombres != null && nombres.isNotEmpty) return nombres;
     return user.email?.split('@').first ?? 'Motociclista';
   }
@@ -466,7 +1115,8 @@ class _MotociclistaMapaScreenState extends State<MotociclistaMapaScreen> {
 
     final estado = data['estado']?.toString() ?? '';
     final asignadoAMi = data['repartidorId']?.toString() == user.uid;
-    if (!asignadoAMi || !(estado == 'en_camino_local' || estado == 'en_camino')) return;
+    if (!asignadoAMi || !(estado == 'en_camino_local' || estado == 'en_camino'))
+      return;
 
     final ahora = DateTime.now().millisecondsSinceEpoch;
     if (!forzar && ahora - _ultimoEnvioFirestoreMs < 3500) return;
@@ -482,21 +1132,27 @@ class _MotociclistaMapaScreenState extends State<MotociclistaMapaScreen> {
       'actualizadoEn': FieldValue.serverTimestamp(),
     };
 
-    await FirebaseFirestore.instance.collection('repartidores').doc(user.uid).set({
-      'uid': user.uid,
-      'email': user.email,
-      'activo': true,
-      ...tracking,
-    }, SetOptions(merge: true));
+    await FirebaseFirestore.instance
+        .collection('repartidores')
+        .doc(user.uid)
+        .set({
+          'uid': user.uid,
+          'email': user.email,
+          'activo': true,
+          ...tracking,
+        }, SetOptions(merge: true));
 
-    await FirebaseFirestore.instance.collection('pedidos_restaurante').doc(widget.pedidoId).set({
-      'repartidorLat': pos.latitude,
-      'repartidorLng': pos.longitude,
-      'repartidorVelocidadKmh': tracking['velocidadKmh'],
-      'repartidorMovimiento': _movimiento,
-      'repartidorRumbo': tracking['rumbo'],
-      'repartidorActualizadoEn': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await FirebaseFirestore.instance
+        .collection('pedidos_restaurante')
+        .doc(widget.pedidoId)
+        .set({
+          'repartidorLat': pos.latitude,
+          'repartidorLng': pos.longitude,
+          'repartidorVelocidadKmh': tracking['velocidadKmh'],
+          'repartidorMovimiento': _movimiento,
+          'repartidorRumbo': tracking['rumbo'],
+          'repartidorActualizadoEn': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
   }
 
   double _moneyNumber(dynamic value) {
@@ -504,7 +1160,8 @@ class _MotociclistaMapaScreenState extends State<MotociclistaMapaScreen> {
     return double.tryParse(value?.toString() ?? '') ?? 0.0;
   }
 
-  String _money(dynamic value) => 'S/ ${_moneyNumber(value).toStringAsFixed(2)}';
+  String _money(dynamic value) =>
+      'S/ ${_moneyNumber(value).toStringAsFixed(2)}';
 
   double _ganancia(Map<String, dynamic> data) {
     final ganancia = data['gananciaRepartidor'];
@@ -512,8 +1169,6 @@ class _MotociclistaMapaScreenState extends State<MotociclistaMapaScreen> {
     final delivery = _moneyNumber(data['delivery']);
     return double.parse(math.max(3.0, delivery * 0.70).toStringAsFixed(2));
   }
-
-  Map<String, dynamic>? _asMap(dynamic value) => value is Map ? Map<String, dynamic>.from(value) : null;
 
   double? _coord(Map<String, dynamic>? map, String key) {
     final value = map?[key];
@@ -562,18 +1217,26 @@ class _MotociclistaMapaScreenState extends State<MotociclistaMapaScreen> {
     final ganancia = _ganancia(data);
 
     try {
-      final ref = FirebaseFirestore.instance.collection('pedidos_restaurante').doc(widget.pedidoId);
+      final ref = FirebaseFirestore.instance
+          .collection('pedidos_restaurante')
+          .doc(widget.pedidoId);
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final fresh = await transaction.get(ref);
         final freshData = fresh.data();
         if (freshData == null) throw Exception('Pedido no encontrado');
+        final estadoActual = freshData['estado']?.toString() ?? '';
+        if (estadoActual != 'en_preparacion' && estadoActual != 'listo') {
+          throw Exception(
+            'El pedido todavia no fue aceptado por administracion',
+          );
+        }
         final asignado = freshData['repartidorAsignado'] == true;
         final repartidorActual = freshData['repartidorId']?.toString();
         if (asignado && repartidorActual != user.uid) {
           throw Exception('Este pedido ya fue tomado por otro repartidor');
         }
         transaction.update(ref, {
-          'estado': 'en_camino_local',
+          'estado': estadoActual == 'listo' ? 'en_camino_local' : estadoActual,
           'seguimientoActivo': true,
           'repartidorAsignado': true,
           'repartidorId': user.uid,
@@ -581,7 +1244,9 @@ class _MotociclistaMapaScreenState extends State<MotociclistaMapaScreen> {
           'repartidorEmail': user.email,
           'repartidorLat': pos?.latitude,
           'repartidorLng': pos?.longitude,
-          'repartidorVelocidadKmh': double.parse(_velocidadKmh.toStringAsFixed(1)),
+          'repartidorVelocidadKmh': double.parse(
+            _velocidadKmh.toStringAsFixed(1),
+          ),
           'repartidorMovimiento': _movimiento,
           'repartidorRumbo': double.parse(_rumbo.toStringAsFixed(1)),
           'gananciaRepartidor': ganancia,
@@ -592,32 +1257,49 @@ class _MotociclistaMapaScreenState extends State<MotociclistaMapaScreen> {
       });
       await _guardarUbicacionRepartidor(forzar: true);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pedido aceptado. Ve al restaurante a recogerlo.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Pedido aceptado. Ve al restaurante a recogerlo.'),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo aceptar: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('No se pudo aceptar: $e')));
     }
   }
 
   Future<void> _rechazarPedido() async {
     final user = _user;
     if (user == null) return;
-    await FirebaseFirestore.instance.collection('pedidos_restaurante').doc(widget.pedidoId).set({
-      'rechazadosPor': FieldValue.arrayUnion([user.uid]),
-      'ultimoRechazoEn': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await FirebaseFirestore.instance
+        .collection('pedidos_restaurante')
+        .doc(widget.pedidoId)
+        .set({
+          'rechazadosPor': FieldValue.arrayUnion([user.uid]),
+          'ultimoRechazoEn': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
     if (!mounted) return;
     Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pedido rechazado. Se libera para otro repartidor.')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Pedido rechazado. Se libera para otro repartidor.'),
+      ),
+    );
   }
 
   Future<void> _cambiarEstado(String estado) async {
-    await FirebaseFirestore.instance.collection('pedidos_restaurante').doc(widget.pedidoId).set({
-      'estado': estado,
-      'estadoActualizadoEn': FieldValue.serverTimestamp(),
-      if (estado == 'en_camino') 'recogidoEn': FieldValue.serverTimestamp(),
-      if (estado == 'entregado') 'entregadoEn': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await FirebaseFirestore.instance
+        .collection('pedidos_restaurante')
+        .doc(widget.pedidoId)
+        .set({
+          'estado': estado,
+          'estadoActualizadoEn': FieldValue.serverTimestamp(),
+          if (estado == 'en_camino') 'recogidoEn': FieldValue.serverTimestamp(),
+          if (estado == 'entregado')
+            'entregadoEn': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
     await _guardarUbicacionRepartidor(forzar: true);
   }
 
@@ -632,18 +1314,27 @@ class _MotociclistaMapaScreenState extends State<MotociclistaMapaScreen> {
     final clienteMap = _asMap(data['ubicacionCliente']);
     final clienteLat = _coord(clienteMap, 'lat');
     final clienteLng = _coord(clienteMap, 'lng');
-    return clienteLat != null && clienteLng != null ? LatLng(clienteLat, clienteLng) : null;
+    return clienteLat != null && clienteLng != null
+        ? LatLng(clienteLat, clienteLng)
+        : null;
   }
 
   Widget _mapa(Map<String, dynamic> data) {
     final restaurante = _restaurante(data);
     final cliente = _cliente(data);
-    final rider = _posicionActual == null ? null : LatLng(_posicionActual!.latitude, _posicionActual!.longitude);
+    final rider = _posicionActual == null
+        ? null
+        : LatLng(_posicionActual!.latitude, _posicionActual!.longitude);
     final center = cliente == null
         ? restaurante
-        : LatLng((restaurante.latitude + cliente.latitude) / 2, (restaurante.longitude + cliente.longitude) / 2);
+        : LatLng(
+            (restaurante.latitude + cliente.latitude) / 2,
+            (restaurante.longitude + cliente.longitude) / 2,
+          );
     final polyline = data['rutaPolyline']?.toString() ?? '';
-    final routePoints = polyline.isNotEmpty ? _decodePolyline(polyline) : <LatLng>[restaurante, if (cliente != null) cliente];
+    final routePoints = polyline.isNotEmpty
+        ? _decodePolyline(polyline)
+        : <LatLng>[restaurante, if (cliente != null) cliente];
     final detenido = _movimiento == 'detenido' || _velocidadKmh < 2;
 
     return GoogleMap(
@@ -654,14 +1345,18 @@ class _MotociclistaMapaScreenState extends State<MotociclistaMapaScreen> {
           markerId: const MarkerId('restaurante'),
           position: restaurante,
           infoWindow: const InfoWindow(title: 'A: El Barto'),
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueYellow),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueYellow,
+          ),
         ),
         if (cliente != null)
           Marker(
             markerId: const MarkerId('cliente'),
             position: cliente,
             infoWindow: const InfoWindow(title: 'B: Cliente'),
-            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueRed,
+            ),
           ),
         if (rider != null && !detenido)
           Marker(
@@ -670,7 +1365,9 @@ class _MotociclistaMapaScreenState extends State<MotociclistaMapaScreen> {
             flat: true,
             rotation: _rumbo,
             anchor: const Offset(0.5, 0.5),
-            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueAzure,
+            ),
             infoWindow: const InfoWindow(title: 'Tu ubicación'),
           ),
       },
@@ -706,11 +1403,9 @@ class _MotociclistaMapaScreenState extends State<MotociclistaMapaScreen> {
     final user = _user;
     final estado = data['estado']?.toString() ?? 'pendiente';
     final asignado = data['repartidorAsignado'] == true;
-    final asignadoAMi = user != null && data['repartidorId']?.toString() == user.uid;
+    final asignadoAMi =
+        user != null && data['repartidorId']?.toString() == user.uid;
     final ganancia = _ganancia(data);
-    final items = ((data['items'] as List?) ?? const []).whereType<Map>().toList();
-    final primerItem = items.isEmpty ? 'Pedido sin detalle' : '${items.first['cantidad'] ?? 1} x ${items.first['nombre'] ?? 'Producto'}';
-    final extra = items.length > 1 ? ' + ${items.length - 1} más' : '';
     final distancia = data['distanciaTexto']?.toString() ?? '';
     final duracion = data['duracionTexto']?.toString() ?? '';
 
@@ -728,7 +1423,14 @@ class _MotociclistaMapaScreenState extends State<MotociclistaMapaScreen> {
         icon: const Icon(Icons.close_rounded),
         label: const Text('Rechazar'),
       );
-    } else if (asignadoAMi && estado == 'en_camino_local') {
+    } else if (asignadoAMi && estado == 'en_preparacion') {
+      primaryButton = ElevatedButton.icon(
+        onPressed: null,
+        icon: const Icon(Icons.restaurant_rounded),
+        label: const Text('Esperando cocina'),
+      );
+    } else if (asignadoAMi &&
+        (estado == 'listo' || estado == 'en_camino_local')) {
       primaryButton = ElevatedButton.icon(
         onPressed: () => _cambiarEstado('en_camino'),
         icon: const Icon(Icons.delivery_dining_rounded),
@@ -763,8 +1465,8 @@ class _MotociclistaMapaScreenState extends State<MotociclistaMapaScreen> {
     final movimientoTexto = _movimiento == 'detenido'
         ? 'Detenido'
         : _movimiento == 'movimiento_fuerte'
-            ? 'Movimiento fuerte'
-            : 'En movimiento';
+        ? 'Movimiento fuerte'
+        : 'En movimiento';
 
     return Positioned(
       left: 14,
@@ -777,7 +1479,13 @@ class _MotociclistaMapaScreenState extends State<MotociclistaMapaScreen> {
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(24),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.18), blurRadius: 18, offset: const Offset(0, 8))],
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.18),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -786,28 +1494,51 @@ class _MotociclistaMapaScreenState extends State<MotociclistaMapaScreen> {
               Row(
                 children: [
                   Expanded(
-                    child: Text('Local → Cliente', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+                    child: Text(
+                      'Local → Cliente',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                    decoration: BoxDecoration(color: amarillo, borderRadius: BorderRadius.circular(999)),
-                    child: Text('Ganas ${_money(ganancia)}', style: const TextStyle(fontWeight: FontWeight.w900)),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: amarillo,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      'Ganas ${_money(ganancia)}',
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
                   ),
                 ],
               ),
               const SizedBox(height: 7),
-              Text('$primerItem$extra', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800)),
+              _pedidoItemsList(data),
+              const SizedBox(height: 6),
+              _clienteTelefonoLine(data),
               const SizedBox(height: 6),
               Text(
                 '${distancia.isEmpty ? 'Distancia no disponible' : distancia} · ${duracion.isEmpty ? 'Tiempo no disponible' : duracion}',
-                style: const TextStyle(color: Colors.black54, fontWeight: FontWeight.w700),
+                style: const TextStyle(
+                  color: Colors.black54,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               const SizedBox(height: 7),
               Row(
                 children: [
                   const Icon(Icons.speed_rounded, size: 18),
                   const SizedBox(width: 6),
-                  Text('${_velocidadKmh.toStringAsFixed(1)} km/h · $movimientoTexto', style: const TextStyle(fontWeight: FontWeight.w800)),
+                  Text(
+                    '${_velocidadKmh.toStringAsFixed(1)} km/h · $movimientoTexto',
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -834,15 +1565,15 @@ class _MotociclistaMapaScreenState extends State<MotociclistaMapaScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Mapa del pedido')),
       body: _error != null
-          ? Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(_error!, textAlign: TextAlign.center)))
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(_error!, textAlign: TextAlign.center),
+              ),
+            )
           : data == null
-              ? const Center(child: CircularProgressIndicator())
-              : Stack(
-                  children: [
-                    _mapa(data),
-                    _bottomPanel(data),
-                  ],
-                ),
+          ? const Center(child: CircularProgressIndicator())
+          : Stack(children: [_mapa(data), _bottomPanel(data)]),
     );
   }
 }
